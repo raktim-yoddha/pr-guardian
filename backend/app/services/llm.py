@@ -16,6 +16,7 @@ from typing import Any, Literal
 import httpx
 
 from app.core.config import settings
+from app.services.resilience import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,15 @@ async def get_llm_response(
 
     try:
         if provider == "ollama":
-            return await _ollama_chat(prompt, system, model, temperature=temperature)
+            return await retry_async(
+                lambda: _ollama_chat(prompt, system, model, temperature=temperature),
+                description="ollama_chat",
+            )
         if provider == "gemini":
-            return await _gemini_chat(prompt, system, model, temperature=temperature)
+            return await retry_async(
+                lambda: _gemini_chat(prompt, system, model, temperature=temperature),
+                description="gemini_chat",
+            )
     except httpx.HTTPError as exc:
         logger.error("LLM provider %s request failed: %s", provider, exc)
         raise
@@ -138,9 +145,15 @@ async def get_embedding(
 
     try:
         if provider == "ollama":
-            return await _ollama_embed(text, model)
+            return await retry_async(
+                lambda: _ollama_embed(text, model),
+                description="ollama_embed",
+            )
         if provider == "gemini":
-            return await _gemini_embed(text, model)
+            return await retry_async(
+                lambda: _gemini_embed(text, model),
+                description="gemini_embed",
+            )
     except httpx.HTTPError as exc:
         logger.error("Embedding provider %s request failed: %s", provider, exc)
         raise

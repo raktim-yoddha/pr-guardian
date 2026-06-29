@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import subprocess
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,6 +20,7 @@ from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.events import router as events_router
 from app.api.webhooks import router as webhooks_router
+from app.core.metrics import serialize_metrics
 from app.core.config import settings
 from app.core.database import engine
 
@@ -63,11 +65,29 @@ async def _try_enable_pgvector() -> None:
         logger.warning("startup: could not enable pgvector (%s)", exc)
 
 
+async def _run_alembic_upgrade() -> None:
+    """Run ``alembic upgrade head`` at startup so migrations are always applied."""
+    try:
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            logger.error("startup: alembic upgrade failed: %s", result.stderr.strip())
+        else:
+            logger.info("startup: alembic upgrade head succeeded")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("startup: alembic upgrade error (%s)", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _configure_logging()
     logger.info("startup: %s starting", settings.APP_NAME)
     await _try_enable_pgvector()
+    await _run_alembic_upgrade()
     yield
     logger.info("shutdown: disposing database engine")
     await engine.dispose()
@@ -102,3 +122,10 @@ app.include_router(webhooks_router)
 async def health() -> dict[str, str]:
     """Liveness probe."""
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+@app.get("/metrics", tags=["meta"])
+async def metrics():
+    """Prometheus-style metrics (no external dependency)."""
+    from starlette.responses import PlainTextResponse
+    return PlainTextResponse(serialize_metrics(), media_type="text/plain")

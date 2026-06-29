@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from app.core.config import settings
+from app.services.resilience import retry_async
 
 GITHUB_API = "https://api.github.com"
 
@@ -164,6 +165,12 @@ class GithubClient:
 
     async def get_repo(self, repo_full_name: str) -> RepoMeta:
         headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_repo_raw(repo_full_name, headers),
+            description=f"get_repo({repo_full_name})",
+        )
+
+    async def _fetch_repo_raw(self, repo_full_name: str, headers: dict[str, str]) -> RepoMeta:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(f"{GITHUB_API}/repos/{repo_full_name}", headers=headers)
             data = self._check(resp)
@@ -180,6 +187,12 @@ class GithubClient:
         self, repo_full_name: str, state: str = "all", per_page: int = 100
     ) -> list[dict[str, Any]]:
         headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_issues_raw(repo_full_name, state, per_page, headers),
+            description=f"list_issues({repo_full_name})",
+        )
+
+    async def _fetch_issues_raw(self, repo_full_name: str, state: str, per_page: int, headers: dict[str, str]) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{GITHUB_API}/repos/{repo_full_name}/issues",
@@ -190,6 +203,12 @@ class GithubClient:
 
     async def get_pr(self, repo_full_name: str, pr_number: int) -> dict[str, Any]:
         headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_pr_raw(repo_full_name, pr_number, headers),
+            description=f"get_pr({repo_full_name}#{pr_number})",
+        )
+
+    async def _fetch_pr_raw(self, repo_full_name: str, pr_number: int, headers: dict[str, str]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{GITHUB_API}/repos/{repo_full_name}/pulls/{pr_number}", headers=headers
@@ -199,6 +218,12 @@ class GithubClient:
     async def get_pr_diff(self, repo_full_name: str, pr_number: int) -> str:
         headers = await self._headers(repo_full_name)
         headers["Accept"] = "application/vnd.github.v3.diff"
+        return await retry_async(
+            lambda: self._fetch_diff_raw(repo_full_name, headers),
+            description=f"get_pr_diff({repo_full_name}#{pr_number})",
+        )
+
+    async def _fetch_diff_raw(self, repo_full_name: str, headers: dict[str, str]) -> str:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{GITHUB_API}/repos/{repo_full_name}/pulls/{pr_number}", headers=headers
@@ -214,12 +239,18 @@ class GithubClient:
     async def get_tree_blobs(
         self, repo_full_name: str, branch: str | None = None
     ) -> list[dict[str, Any]]:
+        headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_tree_raw(repo_full_name, branch, headers),
+            description=f"get_tree_blobs({repo_full_name})",
+        )
+
+    async def _fetch_tree_raw(self, repo_full_name: str, branch: str | None, headers: dict[str, str]) -> list[dict[str, Any]]:
         """Return the flat list of blob file entries for a repo.
 
         Uses the recursive tree endpoint. Each entry has ``path``, ``size``,
         ``sha``, ``type``. Only ``type == "blob"`` entries are returned.
         """
-        headers = await self._headers(repo_full_name)
         ref = branch or (await self.get_repo(repo_full_name)).default_branch or "HEAD"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
@@ -232,8 +263,14 @@ class GithubClient:
     async def get_blob_content(
         self, repo_full_name: str, file_sha: str
     ) -> str:
-        """Fetch the decoded text content of a single file blob."""
         headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_blob_raw(repo_full_name, file_sha, headers),
+            description=f"get_blob_content({file_sha[:8]})",
+        )
+
+    async def _fetch_blob_raw(self, repo_full_name: str, file_sha: str, headers: dict[str, str]) -> str:
+        """Fetch the decoded text content of a single file blob."""
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{GITHUB_API}/repos/{repo_full_name}/git/blobs/{file_sha}",
@@ -254,6 +291,12 @@ class GithubClient:
         self, repo_full_name: str, issue_number: int
     ) -> list[dict[str, Any]]:
         headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_comments_raw(repo_full_name, issue_number, headers),
+            description=f"get_issue_comments({issue_number})",
+        )
+
+    async def _fetch_comments_raw(self, repo_full_name: str, issue_number: int, headers: dict[str, str]) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{GITHUB_API}/repos/{repo_full_name}/issues/{issue_number}/comments",
@@ -268,6 +311,12 @@ class GithubClient:
         self, repo_full_name: str, pr_number: int, body: str
     ) -> None:
         headers = await self._headers(repo_full_name)
+        await retry_async(
+            lambda: self._post_comment_raw(repo_full_name, pr_number, body, headers),
+            description=f"post_pr_comment({repo_full_name}#{pr_number})",
+        )
+
+    async def _post_comment_raw(self, repo_full_name: str, pr_number: int, body: str, headers: dict[str, str]) -> None:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{GITHUB_API}/repos/{repo_full_name}/issues/{pr_number}/comments",
@@ -292,6 +341,12 @@ class GithubClient:
             payload["body"] = body
         if not payload:
             return
+        await retry_async(
+            lambda: self._patch_pr_raw(repo_full_name, pr_number, payload, headers),
+            description=f"update_pr({repo_full_name}#{pr_number})",
+        )
+
+    async def _patch_pr_raw(self, repo_full_name: str, pr_number: int, payload: dict[str, Any], headers: dict[str, str]) -> None:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.patch(
                 f"{GITHUB_API}/repos/{repo_full_name}/pulls/{pr_number}",

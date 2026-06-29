@@ -2,16 +2,19 @@
 
 ``run_pipeline`` fetches the full PR + diff from GitHub, builds the initial
 ``PRState``, runs the LangGraph pipeline, and records an error event if
-anything blows up. Fully async end-to-end.
+anything blows up. Fully async end-to-end. Records timing metrics for the
+Prometheus /metrics endpoint.
 """
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.metrics import inc_counter, observe_histogram
 from app.models.agent import Agent
 from app.models.pr_event import PREvent
 from app.pipeline.graph import pipeline
@@ -73,7 +76,9 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
     Designed to be called as a background task from the webhook. Never raises
     into the request cycle — failures are recorded as ``decision="error"``.
     """
+    t0 = time.monotonic()
     logger.info("run_pipeline: start PR #%s on %s by %s", pr_number, repo_full_name, author)
+    inc_counter("pipeline_runs_total", labels={"repo": repo_full_name})
 
     agent = await _load_agent(repo_full_name)
     if agent is None:
@@ -104,14 +109,22 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
     try:
         final_state = await pipeline.ainvoke(state)
         decision = final_state.get("final_decision", "approved")
+        elapsed = time.monotonic() - t0
+        observe_histogram("pipeline_duration_seconds", elapsed)
+        inc_counter("pipeline_decisions_total", labels={"decision": decision})
+        inc_counter("pipeline_layer_hits_total", labels={"layer": decision})
         logger.info(
-            "run_pipeline: done PR #%s decision=%s reason=%s",
+            "run_pipeline: done PR #%s decision=%s reason=%s in %.2fs",
             pr_number,
             decision,
             final_state.get("decline_reason"),
+            elapsed,
         )
         return {"status": "ok", "decision": decision, "state": final_state}
     except Exception as exc:  # noqa: BLE001 — record so it's visible in the dashboard
+        elapsed = time.monotonic() - t0
+        observe_histogram("pipeline_duration_seconds", elapsed)
+        inc_counter("pipeline_decisions_total", labels={"decision": "error"})
         logger.exception("run_pipeline: crashed PR #%s: %s", pr_number, exc)
         await _record_error(agent.id, pr_number, pr_url, author, str(exc))
         return {"status": "error", "reason": str(exc)}

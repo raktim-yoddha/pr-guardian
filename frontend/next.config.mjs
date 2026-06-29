@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // AllowNextList is intentionally empty for now.
+  output: "standalone",
 };
 
 export default nextConfig;
