@@ -1,0 +1,886 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "hyperedges": [
+      {
+        "id": "pipeline_detection_flow",
+        "label": "Sequential PR Detection Pipeline Flow",
+        "nodes": [
+          "pr_guardian_readme_layer1_spam",
+          "pr_guardian_readme_layer2_malicious",
+          "pr_guardian_readme_layer3_hijack",
+          "pr_guardian_readme_layer4_summary",
+          "pr_guardian_readme_account_flagging",
+          "pr_guardian_readme_multi_layer_pipeline"
+        ],
+        "relation": "participate_in",
+        "confidence": "EXTRACTED",
+        "confidence_score": 1.0,
+        "source_file": "README.md"
+      },
+      {
+        "id": "docker_service_topology",
+        "label": "Docker Compose Service Topology",
+        "nodes": [
+          "pr_guardian_docker_compose_deployment",
+          "pr_guardian_docker_compose_ollama_profile",
+          "pr_guardian_readme_github_webhook",
+          "pr_guardian_readme_pr_guardian"
+        ],
+        "relation": "implement",
+        "confidence": "INFERRED",
+        "confidence_score": 0.75,
+        "source_file": "docker-compose.yml"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "label": "AppLayout",
+      "file_type": "code",
+      "source_file": "frontend/app/(app)/layout.tsx",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "app_layout_applayout",
+      "community": 5,
+      "norm_label": "applayout"
+    },
+    {
+      "label": "AuthLayout",
+      "file_type": "code",
+      "source_file": "frontend/app/(auth)/layout.tsx",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "auth_layout_authlayout",
+      "community": 8,
+      "norm_label": "authlayout"
+    },
+    {
+      "label": "RootLayout",
+      "file_type": "code",
+      "source_file": "frontend/app/layout.tsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "app_layout_rootlayout",
+      "community": 6,
+      "norm_label": "rootlayout"
+    },
+    {
+      "label": "HomePage",
+      "file_type": "code",
+      "source_file": "frontend/app/page.tsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "app_page_homepage",
+      "community": 7,
+      "norm_label": "homepage"
+    },
+    {
+      "label": "AuthGuard",
+      "file_type": "code",
+      "source_file": "frontend/components/custom/auth-guard.tsx",
+      "source_location": "L16",
+      "_origin": "ast",
+      "id": "custom_auth_guard_authguard",
+      "community": 9,
+      "norm_label": "authguard"
+    },
+    {
+      "label": "BadgeProps",
+      "file_type": "code",
+      "source_file": "frontend/components/ui/badge.tsx",
+      "source_location": "L26",
+      "_origin": "ast",
+      "id": "ui_badge_badgeprops",
+      "community": 31,
+      "norm_label": "badgeprops"
+    },
+    {
+      "label": "ButtonProps",
+      "file_type": "code",
+      "source_file": "frontend/components/ui/button.tsx",
+      "source_location": "L36",
+      "_origin": "ast",
+      "id": "ui_button_buttonprops",
+      "community": 32,
+      "norm_label": "buttonprops"
+    },
+    {
+      "label": "InputProps",
+      "file_type": "code",
+      "source_file": "frontend/components/ui/input.tsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "ui_input_inputprops",
+      "community": 33,
+      "norm_label": "inputprops"
+    },
+    {
+      "label": "getToken",
+      "file_type": "code",
+      "source_file": "frontend/lib/api.ts",
+      "source_location": "L28",
+      "_origin": "ast",
+      "id": "lib_api_gettoken",
+      "community": 12,
+      "norm_label": "gettoken"
+    },
+    {
+      "label": "setToken",
+      "file_type": "code",
+      "source_file": "frontend/lib/api.ts",
+      "source_location": "L33",
+      "_origin": "ast",
+      "id": "lib_api_settoken",
+      "community": 13,
+      "norm_label": "settoken"
+    },
+    {
+      "label": "clearToken",
+      "file_type": "code",
+      "source_file": "frontend/lib/api.ts",
+      "source_location": "L38",
+      "_origin": "ast",
+      "id": "lib_api_cleartoken",
+      "community": 11,
+      "norm_label": "cleartoken"
+    },
+    {
+      "label": "ApiError",
+      "file_type": "code",
+      "source_file": "frontend/lib/api.ts",
+      "source_location": "L43",
+      "_origin": "ast",
+      "id": "lib_api_apierror",
+      "community": 10,
+      "norm_label": "apierror"
+    },
+    {
+      "label": "Session",
+      "file_type": "code",
+      "source_file": "frontend/lib/auth.ts",
+      "source_location": "L13",
+      "_origin": "ast",
+      "id": "lib_auth_session",
+      "community": 4,
+      "norm_label": "session"
+    },
+    {
+      "label": "useSession",
+      "file_type": "code",
+      "source_file": "frontend/lib/auth.ts",
+      "source_location": "L20",
+      "_origin": "ast",
+      "id": "lib_auth_usesession",
+      "community": 14,
+      "norm_label": "usesession"
+    },
+    {
+      "label": "User",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "lib_types_user",
+      "community": 4,
+      "norm_label": "user"
+    },
+    {
+      "label": "Token",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "lib_types_token",
+      "community": 27,
+      "norm_label": "token"
+    },
+    {
+      "label": "LlmProvider",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L14",
+      "_origin": "ast",
+      "id": "lib_types_llmprovider",
+      "community": 23,
+      "norm_label": "llmprovider"
+    },
+    {
+      "label": "VectorDbType",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L15",
+      "_origin": "ast",
+      "id": "lib_types_vectordbtype",
+      "community": 28,
+      "norm_label": "vectordbtype"
+    },
+    {
+      "label": "Agent",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L17",
+      "_origin": "ast",
+      "id": "lib_types_agent",
+      "community": 15,
+      "norm_label": "agent"
+    },
+    {
+      "label": "AgentCreateInput",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L33",
+      "_origin": "ast",
+      "id": "lib_types_agentcreateinput",
+      "community": 16,
+      "norm_label": "agentcreateinput"
+    },
+    {
+      "label": "GithubRepo",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L41",
+      "_origin": "ast",
+      "id": "lib_types_githubrepo",
+      "community": 22,
+      "norm_label": "githubrepo"
+    },
+    {
+      "label": "GithubInstallResult",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L46",
+      "_origin": "ast",
+      "id": "lib_types_githubinstallresult",
+      "community": 21,
+      "norm_label": "githubinstallresult"
+    },
+    {
+      "label": "GithubInstallation",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L53",
+      "_origin": "ast",
+      "id": "lib_types_githubinstallation",
+      "community": 20,
+      "norm_label": "githubinstallation"
+    },
+    {
+      "label": "PrDecision",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L60",
+      "_origin": "ast",
+      "id": "lib_types_prdecision",
+      "community": 24,
+      "norm_label": "prdecision"
+    },
+    {
+      "label": "PrLayer",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L61",
+      "_origin": "ast",
+      "id": "lib_types_prlayer",
+      "community": 26,
+      "norm_label": "prlayer"
+    },
+    {
+      "label": "PREvent",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L68",
+      "_origin": "ast",
+      "id": "lib_types_prevent",
+      "community": 25,
+      "norm_label": "prevent"
+    },
+    {
+      "label": "DashboardStats",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L82",
+      "_origin": "ast",
+      "id": "lib_types_dashboardstats",
+      "community": 18,
+      "norm_label": "dashboardstats"
+    },
+    {
+      "label": "AgentStats",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L92",
+      "_origin": "ast",
+      "id": "lib_types_agentstats",
+      "community": 17,
+      "norm_label": "agentstats"
+    },
+    {
+      "label": "FlaggedAccount",
+      "file_type": "code",
+      "source_file": "frontend/lib/types.ts",
+      "source_location": "L102",
+      "_origin": "ast",
+      "id": "lib_types_flaggedaccount",
+      "community": 19,
+      "norm_label": "flaggedaccount"
+    },
+    {
+      "label": "cn",
+      "file_type": "code",
+      "source_file": "frontend/lib/utils.ts",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "lib_utils_cn",
+      "community": 29,
+      "norm_label": "cn"
+    },
+    {
+      "label": "PR Guardian",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 1,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_pr_guardian",
+      "community": 30,
+      "norm_label": "pr guardian"
+    },
+    {
+      "label": "Multi-Layer LangGraph PR Pipeline",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 28,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_multi_layer_pipeline",
+      "community": 0,
+      "norm_label": "multi-layer langgraph pr pipeline"
+    },
+    {
+      "label": "Layer 1: Spam and Useless PR Detection",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 66,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_layer1_spam",
+      "community": 0,
+      "norm_label": "layer 1: spam and useless pr detection"
+    },
+    {
+      "label": "Layer 2: Malicious Code Detection",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 72,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_layer2_malicious",
+      "community": 2,
+      "norm_label": "layer 2: malicious code detection"
+    },
+    {
+      "label": "Layer 3: Hijack-Proof Detection",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 77,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_layer3_hijack",
+      "community": 2,
+      "norm_label": "layer 3: hijack-proof detection"
+    },
+    {
+      "label": "Layer 4: Summary and Title Rewriting",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 83,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_layer4_summary",
+      "community": 0,
+      "norm_label": "layer 4: summary and title rewriting"
+    },
+    {
+      "label": "Account Flagging and Auto-Ban System",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 88,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_account_flagging",
+      "community": 2,
+      "norm_label": "account flagging and auto-ban system"
+    },
+    {
+      "label": "RAG Knowledge Base (Repo + Issues)",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 5,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_rag_knowledge_base",
+      "community": 0,
+      "norm_label": "rag knowledge base (repo + issues)"
+    },
+    {
+      "label": "RAG Ingestion and Chunk Embedding Pipeline",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 51,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_rag_ingestion",
+      "community": 1,
+      "norm_label": "rag ingestion and chunk embedding pipeline"
+    },
+    {
+      "label": "GitHub Webhook Receiver",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 30,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_github_webhook",
+      "community": 3,
+      "norm_label": "github webhook receiver"
+    },
+    {
+      "label": "Belt-and-Suspenders Decline Logic",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": 70,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_belt_and_suspenders",
+      "community": 2,
+      "norm_label": "belt-and-suspenders decline logic"
+    },
+    {
+      "label": "System Hardening Strategy",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": 92,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_hardening_strategy",
+      "community": 3,
+      "norm_label": "system hardening strategy"
+    },
+    {
+      "label": "LLM Provider Abstraction (Ollama or Gemini)",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 106,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_llm_abstraction",
+      "community": 1,
+      "norm_label": "llm provider abstraction (ollama or gemini)"
+    },
+    {
+      "label": "Conventional Commits PR Title Format",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 85,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_conventional_commits",
+      "community": 0,
+      "norm_label": "conventional commits pr title format"
+    },
+    {
+      "label": "512-Token Overlapping Chunk Strategy",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 58,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_knowledge_chunking",
+      "community": 1,
+      "norm_label": "512-token overlapping chunk strategy"
+    },
+    {
+      "label": "Prometheus Metrics Endpoint",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 96,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_prometheus_metrics",
+      "community": 3,
+      "norm_label": "prometheus metrics endpoint"
+    },
+    {
+      "label": "HMAC-SHA256 Webhook Signature Verification",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": 32,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_readme_hmac_webhook_auth",
+      "community": 3,
+      "norm_label": "hmac-sha256 webhook signature verification"
+    },
+    {
+      "label": "Async-First Python Ecosystem",
+      "file_type": "concept",
+      "source_file": "backend/requirements.txt",
+      "source_location": 1,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "backend_requirements_async_ecosystem",
+      "community": 0,
+      "norm_label": "async-first python ecosystem"
+    },
+    {
+      "label": "Multi-Container Docker Compose Deployment",
+      "file_type": "code",
+      "source_file": "docker-compose.yml",
+      "source_location": 14,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_docker_compose_deployment",
+      "community": 1,
+      "norm_label": "multi-container docker compose deployment"
+    },
+    {
+      "label": "Opt-In Ollama Local LLM Profile",
+      "file_type": "code",
+      "source_file": "docker-compose.yml",
+      "source_location": 75,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "pr_guardian_docker_compose_ollama_profile",
+      "community": 1,
+      "norm_label": "opt-in ollama local llm profile"
+    }
+  ],
+  "links": [
+    {
+      "relation": "references",
+      "context": "generic_arg",
+      "confidence": "EXTRACTED",
+      "source_file": "frontend/lib/auth.ts",
+      "source_location": "L16",
+      "weight": 1.0,
+      "source": "lib_auth_session",
+      "target": "lib_types_user",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "backend/requirements.txt",
+      "source_location": 1,
+      "weight": 1.0,
+      "source": "backend_requirements_async_ecosystem",
+      "target": "pr_guardian_readme_multi_layer_pipeline"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 30,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_github_webhook",
+      "target": "pr_guardian_readme_multi_layer_pipeline"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 38,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_multi_layer_pipeline",
+      "target": "pr_guardian_readme_layer1_spam"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 41,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_multi_layer_pipeline",
+      "target": "pr_guardian_readme_layer2_malicious"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 43,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_multi_layer_pipeline",
+      "target": "pr_guardian_readme_layer3_hijack"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 45,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_multi_layer_pipeline",
+      "target": "pr_guardian_readme_layer4_summary"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 70,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_belt_and_suspenders",
+      "target": "pr_guardian_readme_layer1_spam"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 39,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_layer1_spam",
+      "target": "pr_guardian_readme_account_flagging"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 68,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_rag_knowledge_base",
+      "target": "pr_guardian_readme_layer1_spam"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 75,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_belt_and_suspenders",
+      "target": "pr_guardian_readme_layer2_malicious"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 42,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_layer2_malicious",
+      "target": "pr_guardian_readme_account_flagging"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 81,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_belt_and_suspenders",
+      "target": "pr_guardian_readme_layer3_hijack"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 44,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_layer3_hijack",
+      "target": "pr_guardian_readme_account_flagging"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 85,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_layer4_summary",
+      "target": "pr_guardian_readme_conventional_commits"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 84,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_rag_knowledge_base",
+      "target": "pr_guardian_readme_layer4_summary"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 95,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_hardening_strategy",
+      "target": "pr_guardian_readme_account_flagging"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 55,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_rag_ingestion",
+      "target": "pr_guardian_readme_rag_knowledge_base"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 58,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_rag_ingestion",
+      "target": "pr_guardian_readme_knowledge_chunking"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 59,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_rag_ingestion",
+      "target": "pr_guardian_readme_llm_abstraction"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 92,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_hardening_strategy",
+      "target": "pr_guardian_readme_github_webhook"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 32,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_hmac_webhook_auth",
+      "target": "pr_guardian_readme_github_webhook"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": 96,
+      "weight": 1.0,
+      "source": "pr_guardian_readme_hardening_strategy",
+      "target": "pr_guardian_readme_prometheus_metrics"
+    },
+    {
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docker-compose.yml",
+      "source_location": 77,
+      "weight": 1.0,
+      "source": "pr_guardian_docker_compose_ollama_profile",
+      "target": "pr_guardian_readme_llm_abstraction"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docker-compose.yml",
+      "source_location": 83,
+      "weight": 1.0,
+      "source": "pr_guardian_docker_compose_deployment",
+      "target": "pr_guardian_docker_compose_ollama_profile"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "pipeline_detection_flow",
+      "label": "Sequential PR Detection Pipeline Flow",
+      "nodes": [
+        "pr_guardian_readme_layer1_spam",
+        "pr_guardian_readme_layer2_malicious",
+        "pr_guardian_readme_layer3_hijack",
+        "pr_guardian_readme_layer4_summary",
+        "pr_guardian_readme_account_flagging",
+        "pr_guardian_readme_multi_layer_pipeline"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "id": "docker_service_topology",
+      "label": "Docker Compose Service Topology",
+      "nodes": [
+        "pr_guardian_docker_compose_deployment",
+        "pr_guardian_docker_compose_ollama_profile",
+        "pr_guardian_readme_github_webhook",
+        "pr_guardian_readme_pr_guardian"
+      ],
+      "relation": "implement",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "docker-compose.yml"
+    }
+  ],
+  "built_at_commit": "008a6fb2389df9a081bc00c53d15fc92a06181ec"
+}

@@ -110,13 +110,30 @@ async def get_llm_response(
 
 
 async def _ollama_embed(text: str, model: str) -> list[float]:
+    """Embed text via Ollama. Uses the modern /api/embed endpoint.
+
+    Ollama 0.1.13+ renamed /api/embeddings → /api/embed and changed the response
+    shape from {"embedding": [...]} to {"embeddings": [[...]]}. This handles both
+    so it works on any version.
+    """
     async with httpx.AsyncClient(timeout=120.0) as client:
+        # Try the new /api/embed endpoint first.
         resp = await client.post(
-            f"{settings.OLLAMA_BASE_URL}/api/embeddings",
-            json={"model": model, "prompt": text},
+            f"{settings.OLLAMA_BASE_URL}/api/embed",
+            json={"model": model, "input": text},
         )
+        if resp.status_code == 404:
+            # Fall back to the legacy /api/embeddings endpoint for old Ollama.
+            resp = await client.post(
+                f"{settings.OLLAMA_BASE_URL}/api/embeddings",
+                json={"model": model, "prompt": text},
+            )
         resp.raise_for_status()
-        return list(resp.json()["embedding"])
+        data = resp.json()
+        # New shape: {"embeddings": [[...]]}; legacy: {"embedding": [...]}
+        if "embeddings" in data:
+            return list(data["embeddings"][0])
+        return list(data["embedding"])
 
 
 async def _gemini_embed(text: str, model: str) -> list[float]:
