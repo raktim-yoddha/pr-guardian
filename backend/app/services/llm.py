@@ -1,12 +1,7 @@
-"""LLM + embedding abstraction.
+"""LLM + embedding abstraction — Ollama only.
 
 Per AGENTS.md every node and service calls ``get_embedding`` /
-``get_llm_response`` — never the provider APIs directly. ``LLM_PROVIDER`` in
-settings picks the backend, but per-agent config (``Agent.llm_provider``) can
-override it at call time.
-
-Both Ollama and Gemini are spoken to over plain REST (httpx), so we don't drag
-in heavy SDKs.
+``get_llm_response`` — never the provider APIs directly.
 """
 from __future__ import annotations
 
@@ -20,7 +15,7 @@ from app.services.resilience import retry_async
 
 logger = logging.getLogger(__name__)
 
-Provider = Literal["ollama", "gemini"]
+Provider = Literal["ollama"]
 
 
 # --------------------------------------------------------------------------- chat
@@ -46,27 +41,6 @@ async def _ollama_chat(
         return resp.json()["message"]["content"].strip()
 
 
-async def _gemini_chat(
-    prompt: str, system: str, model: str, *, temperature: float
-) -> str:
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is required for the gemini provider")
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={settings.GEMINI_API_KEY}",
-            json={
-                "systemInstruction": {"parts": [{"text": system}]} if system else None,
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": temperature},
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-
 async def get_llm_response(
     prompt: str,
     system: str = "",
@@ -85,25 +59,16 @@ async def get_llm_response(
         temperature: 0.0–1.0; default 0.2 for deterministic decisions.
     """
     provider = provider or settings.LLM_PROVIDER  # type: ignore[assignment]
-    model = model or (
-        settings.GEMINI_MODEL if provider == "gemini" else settings.OLLAMA_MODEL
-    )
+    model = model or settings.OLLAMA_MODEL
 
     try:
-        if provider == "ollama":
-            return await retry_async(
-                lambda: _ollama_chat(prompt, system, model, temperature=temperature),
-                description="ollama_chat",
-            )
-        if provider == "gemini":
-            return await retry_async(
-                lambda: _gemini_chat(prompt, system, model, temperature=temperature),
-                description="gemini_chat",
-            )
+        return await retry_async(
+            lambda: _ollama_chat(prompt, system, model, temperature=temperature),
+            description="ollama_chat",
+        )
     except httpx.HTTPError as exc:
         logger.error("LLM provider %s request failed: %s", provider, exc)
         raise
-    raise ValueError(f"Unknown LLM provider: {provider!r}")
 
 
 # --------------------------------------------------------------------- embeddings
@@ -136,45 +101,21 @@ async def _ollama_embed(text: str, model: str) -> list[float]:
         return list(data["embedding"])
 
 
-async def _gemini_embed(text: str, model: str) -> list[float]:
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is required for the gemini provider")
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:embedContent?key={settings.GEMINI_API_KEY}",
-            json={"model": f"models/{model}", "content": {"parts": [{"text": text}]}},
-        )
-        resp.raise_for_status()
-        return list(resp.json()["embedding"]["values"])
-
-
 async def get_embedding(
     text: str, *, provider: Provider | None = None, model: str | None = None
 ) -> list[float]:
     """Return the embedding vector for ``text``."""
     provider = provider or settings.LLM_PROVIDER  # type: ignore[assignment]
-    model = model or (
-        settings.GEMINI_EMBED_MODEL
-        if provider == "gemini"
-        else settings.OLLAMA_EMBED_MODEL
-    )
+    model = model or settings.OLLAMA_EMBED_MODEL
 
     try:
-        if provider == "ollama":
-            return await retry_async(
-                lambda: _ollama_embed(text, model),
-                description="ollama_embed",
-            )
-        if provider == "gemini":
-            return await retry_async(
-                lambda: _gemini_embed(text, model),
-                description="gemini_embed",
-            )
+        return await retry_async(
+            lambda: _ollama_embed(text, model),
+            description="ollama_embed",
+        )
     except httpx.HTTPError as exc:
         logger.error("Embedding provider %s request failed: %s", provider, exc)
         raise
-    raise ValueError(f"Unknown LLM provider: {provider!r}")
 
 
 async def embed_batch(
@@ -192,5 +133,4 @@ async def embed_batch(
 
 def resolve_provider(agent: Any) -> Provider:
     """Pick the provider for an agent, falling back to the global default."""
-    raw = getattr(agent, "llm_provider", None) or settings.LLM_PROVIDER
-    return raw if raw in ("ollama", "gemini") else settings.LLM_PROVIDER  # type: ignore[return-value]
+    return "ollama"  # type: ignore[return-value]

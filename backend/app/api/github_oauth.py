@@ -41,10 +41,9 @@ async def github_oauth_authorize(request: Request):
 async def github_oauth_callback(
     code: str,
     request: Request,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle GitHub OAuth callback and store connection."""
+    """Handle GitHub OAuth callback - login or connect account."""
     if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
     
@@ -75,12 +74,29 @@ async def github_oauth_callback(
         user_resp.raise_for_status()
         github_user = user_resp.json()
     
-    # Check if connection already exists
+    # Check if user exists by GitHub ID
     from sqlalchemy import select
+    from app.core.security import get_password_hash
     
     result = await db.execute(
+        select(User).where(User.email == github_user.get("email"))
+    )
+    user = result.scalar_one_or_none()
+    
+    # Create user if doesn't exist
+    if not user:
+        user = User(
+            email=github_user.get("email") or f"{github_user['login']}@github.local",
+            hashed_password=get_password_hash("github_oauth"),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    
+    # Check if connection already exists
+    result = await db.execute(
         select(GitHubConnection).where(
-            GitHubConnection.user_id == current_user.id,
+            GitHubConnection.user_id == user.id,
             GitHubConnection.github_user_id == github_user["id"],
         )
     )
@@ -95,7 +111,7 @@ async def github_oauth_callback(
     else:
         # Create new connection
         connection = GitHubConnection(
-            user_id=current_user.id,
+            user_id=user.id,
             github_user_id=github_user["id"],
             github_username=github_user["login"],
             github_email=github_user.get("email"),
@@ -106,7 +122,19 @@ async def github_oauth_callback(
     
     await db.commit()
     
-    return {"message": "GitHub account connected successfully"}
+    # Generate JWT token for auto-login
+    from app.core.security import create_access_token
+    jwt_token = create_access_token(data={"sub": str(user.id)})
+    
+    return {
+        "access_token": jwt_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+        },
+        "github_connected": True,
+    }
 
 
 @router.get("/github/connections")

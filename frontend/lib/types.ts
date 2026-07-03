@@ -126,3 +126,9 @@ export interface GitHubRepo {
   private: boolean;
   updated_at: string;
 }
+
+export interface OAuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}

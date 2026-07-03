@@ -103,9 +103,9 @@ flowchart TD
 | Backend | FastAPI (Python 3.11+) + SQLAlchemy 2.x async | REST API, pipeline orchestration, GitHub OAuth |
 | Database | PostgreSQL 16 + pgvector | Primary store + vector embeddings (1024-dim) |
 | Orchestration | LangGraph | Multi-layer PR review pipeline with conditional routing |
-| LLM | Ollama (local) or Gemini Flash | Code analysis, spam scoring, PR summarization |
-| Auth | JWT (python-jose) + bcrypt + GitHub OAuth | User authentication + GitHub account connection |
-| Embeddings | bge-m3 (Ollama) / text-embedding-004 (Gemini) | RAG knowledge base chunk embeddings (1024-dim) |
+| LLM | Ollama (local) | Code analysis, spam scoring, PR summarization |
+| Auth | JWT (python-jose) + bcrypt + GitHub OAuth + Google OAuth | User authentication + GitHub/Google account connection |
+| Embeddings | bge-m3 (Ollama) | RAG knowledge base chunk embeddings (1024-dim) |
 | Search | Hybrid BM25 + Vector Search | Improved retrieval accuracy for RAG |
 | Deployment | Docker + Nginx | Multi-container production deployment |
 
@@ -183,13 +183,12 @@ Frontend runs at `http://localhost:3000`.
 | `GITHUB_APP_ID` | GitHub App ID (production mode) | — |
 | `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID | — |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret | — |
-| `LLM_PROVIDER` | `ollama` or `gemini` | `ollama` |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | — |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | — |
+| `LLM_PROVIDER` | `ollama` | `ollama` |
 | `OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Chat model name | `llama3` |
 | `OLLAMA_EMBED_MODEL` | Embedding model name | `bge-m3` |
-| `GEMINI_API_KEY` | Google Gemini API key | — |
-| `GEMINI_MODEL` | Gemini chat model | `gemini-1.5-flash` |
-| `GEMINI_EMBED_MODEL` | Gemini embedding model | `text-embedding-004` |
 | `EMBEDDING_DIM` | Embedding vector dimension | `1024` |
 | `SPAM_THRESHOLD` | Spam score threshold to decline | `0.75` |
 | `MAX_PR_DIFF_BYTES` | Max webhook payload size | `524288` |

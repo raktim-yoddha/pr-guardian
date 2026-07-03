@@ -43,22 +43,28 @@ class Settings(BaseSettings):
     # GitHub OAuth
     GITHUB_CLIENT_ID: str | None = None
     GITHUB_CLIENT_SECRET: str | None = None
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
+
+    # Email OTP
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str | None = None
+    SMTP_FROM_NAME: str = "PR Guardian"
 
     # Vector DB — pgvector only (embeddings stored in the KnowledgeChunk table
     # alongside the rest of the data; no separate service). EMBEDDING_DIM is set
     # in the LLM section below alongside the embedding model names.
 
     # LLM
-    LLM_PROVIDER: Literal["ollama", "gemini"] = "ollama"
+    LLM_PROVIDER: Literal["ollama"] = "ollama"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
     OLLAMA_EMBED_MODEL: str = "bge-m3"
-    GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-1.5-flash"
-    GEMINI_EMBED_MODEL: str = "text-embedding-004"
-    # Dimensionality of the chosen embedding model. bge-m3 = 1024,
-    # Gemini text-embedding-004 = 768 (configurable, but default 768). pgvector
-    # stores vectors of exactly this width.
+    # Dimensionality of the bge-m3 embedding model. pgvector stores vectors of exactly this width.
     EMBEDDING_DIM: int = 1024
 
     # RAG

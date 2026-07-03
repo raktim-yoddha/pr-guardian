@@ -17,6 +17,7 @@ import type {
   FlaggedAccount,
   GitHubConnection,
   GitHubRepo,
+  OAuthResponse,
   PREvent,
   Token,
   User,
@@ -120,6 +121,12 @@ export const api = {
     const { access_token } = await api.login(email, password);
     return { token: access_token, user };
   },
+  async handleOAuthCallback(provider: "github" | "google", code: string): Promise<{ access_token: string; token_type: string; user: User }> {
+    return request<{ access_token: string; token_type: string; user: User }>(`/${provider}/oauth/callback`, {
+      query: { code },
+      noAuth: true,
+    });
+  },
   async login(email: string, password: string): Promise<Token> {
     return request<Token>("/api/auth/login", {
       method: "POST",
@@ -193,5 +200,10 @@ export const api = {
   },
   async listGitHubRepos(connectionId: number): Promise<GitHubRepo[]> {
     return request<GitHubRepo[]>(`/github/connections/${connectionId}/repos`);
+  },
+
+  // ----------------------------------------------------------- Google OAuth
+  async getGoogleAuthUrl(): Promise<{ authorization_url: string }> {
+    return request<{ authorization_url: string }>("/google/oauth/authorize");
   },
 };
