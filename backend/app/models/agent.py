@@ -26,6 +26,8 @@ class Agent(Base):
     llm_provider: Mapped[str] = mapped_column(String(16), nullable=False, default="ollama")
     vector_db_type: Mapped[str] = mapped_column(String(16), nullable=False, default="pgvector")
 
+    github_installation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Phase 2 will populate these; defined now so the schema is stable.

@@ -74,6 +74,8 @@ class GithubClient:
         self._timeout = timeout
         # Per-installation token cache: {installation_id: (token, expires_at)}
         self._install_tokens: dict[int, tuple[str, float]] = {}
+        # Thread a per-call installation_id so _resolve_token can use it.
+        self._installation_id: int | None = None
 
     # ------------------------------------------------------------------ auth
 
@@ -87,8 +89,13 @@ class GithubClient:
         except OSError:
             return None
 
-    async def _resolve_token(self, repo_full_name: str) -> str | None:
-        """Return the best available auth token for ``repo_full_name``."""
+    async def _resolve_token(self, repo_full_name: str, *, installation_id: int | None = None) -> str | None:
+        """Return the best available auth token for ``repo_full_name``.
+
+        If ``installation_id`` is provided (from the Agent row), it's used
+        directly to mint a per-installation token. Otherwise falls back to
+        auto-discovery via the repo/owner endpoints, then PAT fallback.
+        """
         # PAT fallback first (local dev).
         if settings.GITHUB_TOKEN:
             return settings.GITHUB_TOKEN
@@ -100,43 +107,47 @@ class GithubClient:
 
         app_jwt = _sign_jwt_with_app_key(app_key)
 
-        owner = repo_full_name.split("/", 1)[0]
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            # Find the installation id for this owner.
-            try:
-                resp = await client.get(
-                    f"{GITHUB_API}/repos/{repo_full_name}/installation",
-                    headers={"Authorization": f"Bearer {app_jwt}"},
-                )
-                resp.raise_for_status()
-                installation_id = resp.json()["id"]
-            except httpx.HTTPError:
-                # Try the user/org installation endpoint as a fallback.
+        # Fast path: use the per-agent installation_id if we have one.
+        iid = installation_id or self._installation_id
+        if iid is None:
+            # Auto-discover: look up installation by repo/owner.
+            owner = repo_full_name.split("/", 1)[0]
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
                 try:
                     resp = await client.get(
-                        f"{GITHUB_API}/users/{owner}/installation",
+                        f"{GITHUB_API}/repos/{repo_full_name}/installation",
                         headers={"Authorization": f"Bearer {app_jwt}"},
                     )
                     resp.raise_for_status()
-                    installation_id = resp.json()["id"]
-                except httpx.HTTPError as exc:
-                    raise GithubError(
-                        f"Could not locate GitHub App installation for {repo_full_name}"
-                    ) from exc
+                    iid = resp.json()["id"]
+                except httpx.HTTPError:
+                    try:
+                        resp = await client.get(
+                            f"{GITHUB_API}/users/{owner}/installation",
+                            headers={"Authorization": f"Bearer {app_jwt}"},
+                        )
+                        resp.raise_for_status()
+                        iid = resp.json()["id"]
+                    except httpx.HTTPError as exc:
+                        raise GithubError(
+                            f"Could not locate GitHub App installation for {repo_full_name}"
+                        ) from exc
 
-            cached = self._install_tokens.get(installation_id)
-            if cached and cached[1] > time.time() + 60:
-                return cached[0]
+        # Cache check.
+        cached = self._install_tokens.get(iid)
+        if cached and cached[1] > time.time() + 60:
+            return cached[0]
 
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
-                f"{GITHUB_API}/app/installations/{installation_id}/access_tokens",
+                f"{GITHUB_API}/app/installations/{iid}/access_tokens",
                 headers={"Authorization": f"Bearer {app_jwt}"},
             )
             resp.raise_for_status()
             data = resp.json()
             token = data["token"]
             expires_at = time.time() + 3600  # tokens last 1h
-            self._install_tokens[installation_id] = (token, expires_at)
+            self._install_tokens[iid] = (token, expires_at)
             return token
 
     async def _headers(self, repo_full_name: str) -> dict[str, str]:

@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     # GitHub
     GITHUB_APP_ID: str | None = None
+    GITHUB_APP_SLUG: str = "pr-guardian"  # the /apps/<slug> URL part
     GITHUB_APP_PRIVATE_KEY_PATH: str | None = None
     GITHUB_WEBHOOK_SECRET: str = "change-me-webhook-secret"
     GITHUB_TOKEN: str | None = None  # optional PAT fallback for the github client

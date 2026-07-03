@@ -19,6 +19,7 @@ from app.api.agents import router as agents_router
 from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.events import router as events_router
+from app.api.github import router as github_router
 from app.api.webhooks import router as webhooks_router
 from app.core.metrics import serialize_metrics
 from app.core.config import settings
@@ -112,6 +113,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(auth_router)
+app.include_router(github_router)
 app.include_router(agents_router)
 app.include_router(events_router)
 app.include_router(dashboard_router)

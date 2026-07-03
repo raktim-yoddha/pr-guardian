@@ -17,6 +17,7 @@ class AgentCreate(BaseModel):
     )
     llm_provider: LlmProviderLiteral = "ollama"
     vector_db_type: VectorDbLiteral = "pgvector"
+    github_installation_id: int | None = None
 
     @field_validator("repo_full_name")
     @classmethod
@@ -39,6 +40,7 @@ class AgentUpdate(BaseModel):
     is_active: bool | None = None
     llm_provider: LlmProviderLiteral | None = None
     vector_db_type: VectorDbLiteral | None = None
+    github_installation_id: int | None = None
 
 
 class AgentRead(BaseModel):
@@ -50,6 +52,7 @@ class AgentRead(BaseModel):
     repo_full_name: str
     llm_provider: str
     vector_db_type: str
+    github_installation_id: int | None
     is_active: bool
     ingestion_status: str
     last_ingested_at: datetime | None

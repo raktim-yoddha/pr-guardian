@@ -21,6 +21,7 @@ export interface Agent {
   repo_full_name: string;
   llm_provider: LlmProvider;
   vector_db_type: VectorDbType;
+  github_installation_id: number | null;
   is_active: boolean;
   ingestion_status: "pending" | "running" | "done" | "failed";
   last_ingested_at: string | null;
@@ -34,6 +35,26 @@ export interface AgentCreateInput {
   repo_full_name: string;
   llm_provider: LlmProvider;
   vector_db_type: VectorDbType;
+  github_installation_id?: number | null;
+}
+
+export interface GithubRepo {
+  full_name: string;
+  private: boolean;
+}
+
+export interface GithubInstallResult {
+  status: "installed" | "pending_approval";
+  installation_id?: number;
+  repos?: GithubRepo[];
+  message?: string;
+}
+
+export interface GithubInstallation {
+  installation_id: number;
+  account_login: string;
+  account_type: string;
+  permissions: Record<string, string>;
 }
 
 export type PrDecision = "approved" | "declined" | "error";
