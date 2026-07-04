@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.metrics import inc_counter, observe_histogram
 from app.models.agent import Agent
+from app.models.github_account import GithubAccount
 from app.models.pr_event import PREvent
 from app.pipeline.graph import pipeline
 from app.pipeline.state import PRState
@@ -54,6 +55,17 @@ async def _fetch_pr(repo_full_name: str, pr_number: int) -> tuple[str, str, str]
     return title, body, diff
 
 
+async def _get_author_flags(author: str) -> tuple[int, bool]:
+    """Return (flag_count, is_banned) for the author."""
+    async with AsyncSessionLocal() as db:
+        account = await db.scalar(
+            select(GithubAccount).where(GithubAccount.github_username == author)
+        )
+        if account:
+            return account.flag_count, account.account_status == "banned"
+        return 0, False
+
+
 async def _record_error(agent_id: int, pr_number: int, pr_url: str, author: str, msg: str) -> None:
     async with AsyncSessionLocal() as db:
         db.add(
@@ -86,6 +98,7 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
         return {"status": "ignored", "reason": "no agent owns repo"}
 
     title, body, diff = await _fetch_pr(repo_full_name, pr_number)
+    flag_count, is_banned = await _get_author_flags(author)
 
     state: PRState = {
         "agent_id": agent.id,
@@ -104,6 +117,8 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
         "flag_account": False,
         "summary_title": None,
         "summary_body": None,
+        "author_flag_count": flag_count,
+        "author_is_banned": is_banned,
     }
 
     try:

@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     FLAG_BAN_THRESHOLD: int = 3
     MAX_PR_DIFF_BYTES: int = 500 * 1024
 
+    # Celery (background tasks)
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+
 
 @lru_cache
 def get_settings() -> Settings:

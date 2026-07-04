@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.metrics import inc_counter
 from app.core.database import AsyncSessionLocal
 from app.models.pr_event import PREvent
-from app.pipeline.runner import run_pipeline
+from app.tasks import process_pr_task
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +187,7 @@ async def github_webhook(
         return {"status": "ignored", "reason": "payload exceeds size limit"}
 
     # 5. Dispatch — do NOT block the webhook response.
-    background_tasks.add_task(
-        run_pipeline,
+    process_pr_task.delay(
         repo_full_name=repo_full_name,
         pr_number=int(pr_number),
         pr_url=pr_url,

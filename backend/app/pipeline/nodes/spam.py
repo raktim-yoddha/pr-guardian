@@ -76,6 +76,28 @@ async def spam_detection(state: PRState) -> dict:
 
     logger.info("spam_detection: PR #%s on %s", state.get("pr_number"), state.get("repo_full_name"))
 
+    # Check if author is banned - auto-decline
+    author_is_banned = state.get("author_is_banned", False)
+    if author_is_banned:
+        logger.info("spam_detection: author is banned, auto-declining")
+        return {
+            "final_decision": "declined",
+            "decline_reason": "[Spam] Author is banned from this repository",
+            "flag_account": True,
+            "layer_results": {**state.get("layer_results", {}), "spam": {"score": 1.0, "reason": "Author is banned"}},
+        }
+
+    # Check if author has flags - lower threshold for decline
+    author_flag_count = state.get("author_flag_count", 0)
+    from app.core.config import settings
+    base_threshold = settings.SPAM_THRESHOLD
+    # Lower threshold by 0.1 for each flag, minimum 0.3
+    adjusted_threshold = max(0.3, base_threshold - (author_flag_count * 0.1))
+    
+    if author_flag_count > 0:
+        logger.info("spam_detection: author has %d flags, threshold lowered from %.2f to %.2f", 
+                    author_flag_count, base_threshold, adjusted_threshold)
+
     # Fast heuristic check first.
     is_spam, reason = _heuristic_spam_check(state)
     if is_spam:
@@ -122,11 +144,9 @@ Score this PR's spam/uselessness likelihood. Return JSON: {{"score": 0.0-1.0, "r
         logger.warning("spam_detection: LLM error (%s), passing", exc)
         score, llm_reason = 0.0, f"LLM error: {exc}"
 
-    from app.core.config import settings
-    threshold = settings.SPAM_THRESHOLD
-
-    if score > threshold:
-        logger.info("spam_detection: LLM decline — score=%.2f reason=%s", score, llm_reason)
+    if score > adjusted_threshold:
+        logger.info("spam_detection: LLM decline — score=%.2f threshold=%.2f reason=%s", 
+                    score, adjusted_threshold, llm_reason)
         return {
             "final_decision": "declined",
             "decline_reason": f"[Spam] Score {score:.2f}: {llm_reason}",

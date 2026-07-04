@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import type { Agent, AgentStats, DashboardStats, FlaggedAccount } from "@/lib/types";
+import { Shield, AlertTriangle, CheckCircle, XCircle, Clock, Activity, Users, GitBranch } from "lucide-react";
 
 export default function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -24,9 +25,22 @@ export default function DashboardPage() {
   const [flagged, setFlagged] = useState<FlaggedAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unflagging, setUnflagging] = useState<string | null>(null);
 
   // Filter by agent
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+
+  const handleUnflag = async (username: string) => {
+    setUnflagging(username);
+    try {
+      await api.unflagAccount(username);
+      setFlagged(flagged.filter(f => f.github_username !== username));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to unflag account");
+    } finally {
+      setUnflagging(null);
+    }
+  };
 
   const loadStats = () => {
     setLoading(true);
@@ -93,18 +107,19 @@ export default function DashboardPage() {
 
       {!loading && stats && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total PRs" value={String(stats.total_prs)} />
-          <StatCard label="Approved" value={String(stats.approved)} tone="success" />
-          <StatCard label="Declined" value={String(stats.declined)} tone="destructive" />
+          <StatCard label="Total PRs" value={String(stats.total_prs)} icon={<GitBranch className="h-4 w-4" />} />
+          <StatCard label="Approved" value={String(stats.approved)} tone="success" icon={<CheckCircle className="h-4 w-4" />} />
+          <StatCard label="Declined" value={String(stats.declined)} tone="destructive" icon={<XCircle className="h-4 w-4" />} />
           <StatCard
             label="Flagged accounts"
             value={String(stats.flagged_accounts)}
             hint={stats.banned_accounts > 0 ? `${stats.banned_accounts} banned` : undefined}
+            icon={<Shield className="h-4 w-4" />}
           />
-          <StatCard label="Errors" value={String(stats.errors)} />
-          <StatCard label="Approval rate" value={pct(stats.approval_rate)} />
-          <StatCard label="Active agents" value={String(agents.filter((a) => a.is_active).length)} />
-          <StatCard label="Total agents" value={String(agents.length)} />
+          <StatCard label="Errors" value={String(stats.errors)} icon={<AlertTriangle className="h-4 w-4" />} />
+          <StatCard label="Approval rate" value={pct(stats.approval_rate)} icon={<Activity className="h-4 w-4" />} />
+          <StatCard label="Active agents" value={String(agents.filter((a) => a.is_active).length)} icon={<Users className="h-4 w-4" />} />
+          <StatCard label="Total agents" value={String(agents.length)} icon={<Clock className="h-4 w-4" />} />
         </div>
       )}
 
@@ -184,50 +199,83 @@ export default function DashboardPage() {
       {!loading && (
         <Card>
           <CardHeader>
-            <CardTitle>Flagged accounts</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Flagged accounts
+            </CardTitle>
             <CardDescription>
-              GitHub accounts flagged by your agents&apos; pipelines.
+              GitHub accounts flagged by your agents&apos; pipelines. You can manually remove flags if the AI was wrong.
             </CardDescription>
           </CardHeader>
           <CardContent>
             {flagged.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No flagged accounts yet.
-              </p>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Shield className="h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-sm text-muted-foreground">
+                  No flagged accounts yet.
+                </p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 pr-4 font-medium">Username</th>
-                      <th className="pb-2 pr-4 font-medium">Flags</th>
-                      <th className="pb-2 pr-4 font-medium">Status</th>
-                      <th className="pb-2 font-medium">First seen</th>
+                      <th className="pb-3 pr-4 font-medium">Username</th>
+                      <th className="pb-3 pr-4 font-medium">Flags</th>
+                      <th className="pb-3 pr-4 font-medium">Status</th>
+                      <th className="pb-3 pr-4 font-medium">First seen</th>
+                      <th className="pb-3 font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {flagged.map((f) => (
-                      <tr key={f.github_username} className="border-b last:border-0">
-                        <td className="py-2 pr-4 font-medium">
+                      <tr key={f.github_username} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                        <td className="py-3 pr-4 font-medium">
                           <a
                             href={`https://github.com/${f.github_username}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-primary underline"
+                            className="text-primary hover:underline flex items-center gap-1"
                           >
                             {f.github_username}
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
                           </a>
                         </td>
-                        <td className="py-2 pr-4">{f.flag_count}</td>
-                        <td className="py-2 pr-4">
+                        <td className="py-3 pr-4">
+                          <Badge variant="outline" className="font-mono">
+                            {f.flag_count}
+                          </Badge>
+                        </td>
+                        <td className="py-3 pr-4">
                           <Badge
                             variant={f.account_status === "banned" ? "destructive" : "secondary"}
+                            className={f.account_status === "active" ? "bg-green-500/10 text-green-500 hover:bg-green-500/20" : ""}
                           >
                             {f.account_status}
                           </Badge>
                         </td>
-                        <td className="py-2 text-muted-foreground">
-                          {new Date(f.first_seen).toLocaleString()}
+                        <td className="py-3 pr-4 text-muted-foreground">
+                          {new Date(f.first_seen).toLocaleDateString()}
+                        </td>
+                        <td className="py-3">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleUnflag(f.github_username)}
+                            disabled={unflagging === f.github_username}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            {unflagging === f.github_username ? (
+                              "Removing..."
+                            ) : (
+                              <>
+                                <Shield className="h-4 w-4 mr-1" />
+                                Unflag
+                              </>
+                            )}
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -247,11 +295,13 @@ function StatCard({
   value,
   hint,
   tone,
+  icon,
 }: {
   label: string;
   value: string;
   hint?: string;
   tone?: "success" | "destructive";
+  icon?: React.ReactNode;
 }) {
   const valueClass =
     tone === "success"
@@ -262,7 +312,10 @@ function StatCard({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardDescription>{label}</CardDescription>
+        <div className="flex items-center justify-between">
+          <CardDescription>{label}</CardDescription>
+          {icon && <div className="text-muted-foreground">{icon}</div>}
+        </div>
         <CardTitle className={`text-2xl ${valueClass}`}>{value}</CardTitle>
       </CardHeader>
       {hint && (

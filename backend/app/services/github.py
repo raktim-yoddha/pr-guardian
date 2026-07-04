@@ -230,11 +230,11 @@ class GithubClient:
         headers = await self._headers(repo_full_name)
         headers["Accept"] = "application/vnd.github.v3.diff"
         return await retry_async(
-            lambda: self._fetch_diff_raw(repo_full_name, headers),
+            lambda: self._fetch_diff_raw(repo_full_name, pr_number, headers),
             description=f"get_pr_diff({repo_full_name}#{pr_number})",
         )
 
-    async def _fetch_diff_raw(self, repo_full_name: str, headers: dict[str, str]) -> str:
+    async def _fetch_diff_raw(self, repo_full_name: str, pr_number: int, headers: dict[str, str]) -> str:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{GITHUB_API}/repos/{repo_full_name}/pulls/{pr_number}", headers=headers

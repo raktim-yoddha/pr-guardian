@@ -188,6 +188,11 @@ export const api = {
       query: agentId !== undefined ? { agent_id: agentId } : undefined,
     });
   },
+  async unflagAccount(githubUsername: string): Promise<{ message: string }> {
+    return request<{ message: string }>(`/api/dashboard/flagged-accounts/${githubUsername}/unflag`, {
+      method: "POST",
+    });
+  },
 
   // ----------------------------------------------------------- GitHub OAuth
   async getGitHubAuthUrl(): Promise<{ authorization_url: string }> {

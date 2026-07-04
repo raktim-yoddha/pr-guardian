@@ -5,7 +5,7 @@ All data is scoped to agents owned by the current user. Events are read-only
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DBSession
 from app.models.agent import Agent
@@ -181,3 +181,38 @@ async def list_flagged_accounts(
         .order_by(GithubAccount.flag_count.desc())
     )
     return list(result.scalars().all())
+
+
+@router.post("/flagged-accounts/{github_username}/unflag", status_code=status.HTTP_200_OK)
+async def unflag_account(
+    github_username: str,
+    current_user: CurrentUser,
+    db: DBSession,
+) -> dict[str, str]:
+    """Remove flags from a GitHub account (manual override)."""
+    # Verify this account is associated with the user's agents
+    q = (
+        select(PREvent.author_github.label("u"))
+        .join(Agent, Agent.id == PREvent.agent_id)
+        .where(Agent.user_id == current_user.id)
+        .where(PREvent.author_github == github_username)
+        .distinct()
+    )
+    result = await db.execute(q)
+    if not result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found or not associated with your agents",
+        )
+
+    # Reset the account's flags
+    account = await db.scalar(
+        select(GithubAccount).where(GithubAccount.github_username == github_username)
+    )
+    if account:
+        account.flag_count = 0
+        account.account_status = "active"
+        account.banned_at = None
+        await db.commit()
+
+    return {"message": f"Flags removed for {github_username}"}

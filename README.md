@@ -2,24 +2,36 @@
 
 > Your AI-powered Pull Request bouncer — catches spam, malicious code, and injection attacks before they reach human reviewers.
 
-PR Guardian is a RAG-powered GitHub Pull Request management system. Users connect their GitHub accounts via OAuth, then create agents tied to specific repositories. Each agent ingests the full repo and its issues as a knowledge base using hybrid BM25 + vector search, then autonomously reviews incoming PRs through a multi-layer agentic pipeline — declining dangerous PRs (and closing them) and polishing clean ones before they ever reach a human reviewer.
+PR Guardian is a RAG-powered GitHub Pull Request management system. Users connect their GitHub accounts via OAuth (GitHub or Google), then create agents tied to specific repositories. Each agent ingests the full repo and its issues as a knowledge base using hybrid BM25 + vector search, then autonomously reviews incoming PRs through a multi-layer agentic pipeline — declining dangerous PRs (and closing them) and polishing clean ones before they ever reach a human reviewer.
+
+**Key Features:**
+- **Multi-layer PR Review Pipeline**: Spam detection, malicious code scanning, hijack-proof detection, and PR summarization
+- **RAG-powered Context**: Hybrid BM25 + vector search retrieves relevant code and issues for informed decisions
+- **Account Flagging System**: Tracks problematic contributors with automatic bans and manual override capability
+- **Cautious Mode for Flagged Accounts**: Lowered thresholds for users with previous flags
+- **Background Processing**: Redis+Celery for reliable async PR processing
+- **Modern Dashboard**: Professional UI with real-time stats, event logs, and account management
+- **OAuth Authentication**: Secure GitHub and Google OAuth integration
 
 ## 🚀 How to Use
 
 **1. Sign Up & Connect GitHub**
-Register an account, then connect your GitHub account via OAuth from the sidebar. This grants PR Guardian full permissions to manage your repositories and pull requests.
+Register an account, then connect your GitHub or Google account via OAuth from the login page. This grants PR Guardian permissions to access your repositories and pull requests.
 
 **2. Create an Agent**
-Select a connected GitHub account, choose a repository from your accessible repos, then configure the LLM provider (Ollama or Gemini) and vector database. The system immediately begins ingesting the repo's source code and all issues into its knowledge base using the bge-m3 embedding model.
+Select a connected GitHub account, choose a repository from your accessible repos, then configure the LLM provider (Ollama or Gemini). The system immediately begins ingesting the repo's source code and all issues into its knowledge base using the bge-m3 embedding model.
 
 **3. Pipeline Reviews PRs Automatically**
-Each incoming PR passes through four sequential detection layers — spam, malicious code, hijack-proof, and summary. If any layer flags the PR, it's automatically closed with a comment explaining the reason, and the author's GitHub account gets a strike. Clean PRs get their title and description rewritten in conventional-commits format.
+Each incoming PR passes through four sequential detection layers — spam, malicious code, hijack-proof, and summary. If any layer flags the PR, it's automatically declined with a comment explaining the reason, and the author's GitHub account gets a flag. Clean PRs get their title and description rewritten in conventional-commits format.
 
 **4. Monitor from the Dashboard**
-The modern sidebar-oriented dashboard shows aggregate stats (total PRs, approval rate, flagged accounts), a per-agent breakdown, an immutable event log with every decision, and a flagged-accounts panel showing users who've been caught.
+The modern dashboard shows aggregate stats (total PRs, approval rate, flagged accounts), a per-agent breakdown, an event log with every decision, and a flagged-accounts panel showing users who've been caught. You can manually remove flags if the AI was wrong.
 
-**5. Manage Agents**
-Pause, resume, or delete agents. Edit LLM provider and vector DB settings. Trigger manual knowledge-base re-syncs from the agent settings page.
+**5. Manage Flagged Accounts**
+View all flagged GitHub accounts with their flag counts and status. If the AI incorrectly flagged an account, you can manually remove the flags to reset their status. Accounts with 3+ flags are auto-banned and will have their PRs auto-declined.
+
+**6. Manage Agents**
+Pause, resume, or delete agents. Edit LLM provider settings. Trigger manual knowledge-base re-syncs from the agent settings page.
 
 ## 🧠 Implementation Process
 
@@ -88,6 +100,9 @@ flowchart TD
 **Account Flagging:**
 - Every declined PR increments `flag_count` on the `GithubAccount` model
 - At `flag_count >= 3`, the account is auto-banned
+- Users can manually remove flags via a dashboard button if the AI was wrong
+- Flagged accounts have lowered spam detection thresholds (0.1 reduction per flag, minimum 0.3)
+- Banned accounts are auto-declined without running the full pipeline
 
 **Hardening (Phase 5):**
 - All external API calls wrapped with exponential backoff retry (3 attempts, 0.5s base, 8s max, jitter)
@@ -99,13 +114,14 @@ flowchart TD
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| Frontend | Next.js 14 (App Router) + Shadcn UI + Tailwind | Modern sidebar-oriented dashboard, agent management, event log |
-| Backend | FastAPI (Python 3.11+) + SQLAlchemy 2.x async | REST API, pipeline orchestration, GitHub OAuth |
-| Database | PostgreSQL 16 + pgvector | Primary store + vector embeddings (768-dim) |
+| Frontend | Next.js 14 (App Router) + Shadcn UI + Tailwind | Modern dashboard, agent management, event log |
+| Backend | FastAPI (Python 3.11+) + SQLAlchemy 2.x async | REST API, pipeline orchestration, OAuth |
+| Database | PostgreSQL 16 + pgvector | Primary store + vector embeddings (1024-dim) |
+| Background Tasks | Celery + Redis | Async PR processing queue |
 | Orchestration | LangGraph | Multi-layer PR review pipeline with conditional routing |
-| LLM | Ollama (local) | Code analysis, spam scoring, PR summarization |
+| LLM | Ollama (local) or Gemini Flash | Code analysis, spam scoring, PR summarization |
 | Auth | JWT (python-jose) + bcrypt + GitHub OAuth + Google OAuth | User authentication + GitHub/Google account connection |
-| Embeddings | nomic-embed-text (Ollama) | RAG knowledge base chunk embeddings (768-dim) |
+| Embeddings | bge-m3 (Ollama) | RAG knowledge base chunk embeddings (1024-dim) |
 | Search | Hybrid BM25 + Vector Search | Improved retrieval accuracy for RAG |
 | Deployment | Docker + Nginx | Multi-container production deployment |
 
@@ -115,6 +131,7 @@ flowchart TD
 
 - Python 3.11+
 - Node.js 20+
+- Redis (for Celery background tasks)
 - Docker & Docker Compose (for database or full deployment)
 - Ollama (optional, for local LLM) or a Gemini API key
 
@@ -143,7 +160,7 @@ The app is available at `http://localhost` (nginx proxies port 80).
 **Database:**
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres redis
 ```
 
 **Backend:**
@@ -154,10 +171,19 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate
 # Unix: source .venv/bin/activate
 pip install -r requirements.txt
-cp ../.env.example .env
+cp .env.example .env
 # Edit .env with your values
 alembic upgrade head
 uvicorn app.main:app --reload
+```
+
+In a separate terminal, start the Celery worker:
+
+```bash
+cd backend
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Unix
+celery -A app.worker worker --loglevel=info
 ```
 
 Backend runs at `http://localhost:8000`.
@@ -174,24 +200,22 @@ Frontend runs at `http://localhost:3000`.
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL async connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/prguardian` |
-| `SECRET_KEY` | JWT signing key (use a long random string) | — |
-| `GITHUB_WEBHOOK_SECRET` | HMAC secret for GitHub webhook validation | — |
-| `GITHUB_TOKEN` | Personal Access Token (dev mode) | — |
-| `GITHUB_APP_ID` | GitHub App ID (production mode) | — |
-| `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID | — |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret | — |
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | — |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | — |
-| `LLM_PROVIDER` | `ollama` | `ollama` |
-| `OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
-| `OLLAMA_MODEL` | Chat model name | `llama3` |
-| `OLLAMA_EMBED_MODEL` | Embedding model name | `bge-m3` |
-| `EMBEDDING_DIM` | Embedding vector dimension | `1024` |
-| `SPAM_THRESHOLD` | Spam score threshold to decline | `0.75` |
-| `MAX_PR_DIFF_BYTES` | Max webhook payload size | `524288` |
+Copy `backend/.env.example` to `backend/.env` and configure the following variables. Each variable has inline comments explaining its purpose.
+
+```bash
+cp backend/.env.example backend/.env
+# Edit backend/.env with your configuration
+```
+
+Key configuration areas:
+- **Database**: PostgreSQL connection string
+- **Auth**: JWT secret key for token signing
+- **GitHub App**: App ID, private key, webhook secret for production
+- **GitHub OAuth**: Client ID/secret for user authentication
+- **Google OAuth**: Client ID/secret for Google authentication
+- **LLM**: Ollama or Gemini configuration for code analysis
+- **Celery**: Redis URLs for background task processing
+- **Pipeline**: Spam threshold, flag ban threshold, payload limits
 
 ## 🔗 API Endpoints
 
@@ -211,11 +235,14 @@ Frontend runs at `http://localhost:3000`.
 | `GET` | `/api/dashboard/stats` | Yes | Aggregate stats (total, approved, declined, flagged) |
 | `GET` | `/api/dashboard/per-agent` | Yes | Stats broken down per agent |
 | `GET` | `/api/dashboard/flagged-accounts` | Yes | Flagged GitHub accounts for user's agents |
-| `GET` | `/github/oauth/authorize` | Yes | Get GitHub OAuth authorization URL |
-| `GET` | `/github/oauth/callback` | No | Handle GitHub OAuth callback |
-| `GET` | `/github/connections` | Yes | List user's GitHub connections |
-| `DELETE` | `/github/connections/{id}` | Yes | Delete a GitHub connection |
-| `GET` | `/github/connections/{id}/repos` | Yes | List repos accessible via connection |
+| `POST` | `/api/dashboard/flagged-accounts/{username}/unflag` | Yes | Manually remove flags from an account |
+| `GET` | `/api/github/oauth/authorize` | No | Get GitHub OAuth authorization URL |
+| `GET` | `/api/github/oauth/callback` | No | Handle GitHub OAuth callback |
+| `GET` | `/api/github/connections` | Yes | List user's GitHub connections |
+| `DELETE` | `/api/github/connections/{id}` | Yes | Delete a GitHub connection |
+| `GET` | `/api/github/connections/{id}/repos` | Yes | List repos accessible via connection |
+| `GET` | `/api/google/oauth/authorize` | No | Get Google OAuth authorization URL |
+| `GET` | `/api/google/oauth/callback` | No | Handle Google OAuth callback |
 | `POST` | `/webhooks/github` | HMAC | GitHub webhook receiver |
 | `POST` | `/webhooks/rotate-secret` | HMAC | Rotate webhook HMAC secret |
 | `GET` | `/metrics` | No | Prometheus-style metrics |

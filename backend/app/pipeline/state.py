@@ -24,3 +24,5 @@ class PRState(TypedDict, total=False):
     flag_account: bool
     summary_title: str | None
     summary_body: str | None
+    author_flag_count: int        # Number of flags on the author's account
+    author_is_banned: bool        # Whether the author is banned
