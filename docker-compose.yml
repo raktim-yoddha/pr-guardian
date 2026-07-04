@@ -6,7 +6,9 @@
 #
 # Services:
 #   - postgres  : PostgreSQL 16 + pgvector extension
-#   - backend   : FastAPI (auto-runs alembic upgrade head on startup)
+#   - redis     : Redis for Celery task queue
+#   - backend   : FastAPI (lightweight, only handles HTTP requests)
+#   - worker    : Celery worker (handles heavy background tasks)
 #   - frontend  : Next.js standalone
 #   - nginx     : reverse proxy (port 80)
 #   - ollama    : local LLM (opt-in, enable with: docker compose --profile ollama up -d)
@@ -31,7 +33,15 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # ── Backend ────────────────────────────────────────────────────────────
+  # ── Redis for Celery ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: prguardian-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+
+  # ── Backend (FastAPI only - lightweight) ────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -40,12 +50,38 @@ services:
     env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prguardian}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # ── Celery Worker (handles heavy background tasks) ─────────────────────
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: prguardian-worker
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prguardian}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    command: python start_worker.py
 
   # ── Frontend ───────────────────────────────────────────────────────────
   frontend:

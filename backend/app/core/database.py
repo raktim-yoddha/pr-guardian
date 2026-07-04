@@ -25,6 +25,9 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+# Alias for consistency with imports in main.py
+async_session_maker = AsyncSessionLocal
+
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""

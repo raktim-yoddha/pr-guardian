@@ -212,6 +212,24 @@ class GithubClient:
             )
             return self._check(resp)
 
+    async def list_pull_requests(
+        self, repo_full_name: str, state: str = "open", per_page: int = 100
+    ) -> list[dict[str, Any]]:
+        headers = await self._headers(repo_full_name)
+        return await retry_async(
+            lambda: self._fetch_pull_requests_raw(repo_full_name, state, per_page, headers),
+            description=f"list_pull_requests({repo_full_name})",
+        )
+
+    async def _fetch_pull_requests_raw(self, repo_full_name: str, state: str, per_page: int, headers: dict[str, str]) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(
+                f"{GITHUB_API}/repos/{repo_full_name}/pulls",
+                params={"state": state, "per_page": per_page},
+                headers=headers,
+            )
+            return self._check(resp)
+
     async def get_pr(self, repo_full_name: str, pr_number: int) -> dict[str, Any]:
         headers = await self._headers(repo_full_name)
         return await retry_async(

@@ -157,13 +157,13 @@ The app is available at `http://localhost` (nginx proxies port 80).
 
 ### Option B: Local Development
 
-**Database:**
+**Database & Redis:**
 
 ```bash
 docker compose up -d postgres redis
 ```
 
-**Backend:**
+**Backend (FastAPI - lightweight):**
 
 ```bash
 cd backend
@@ -177,16 +177,18 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-In a separate terminal, start the Celery worker:
+**Celery Worker (handles heavy background tasks):**
+
+In a separate terminal:
 
 ```bash
 cd backend
 .venv\Scripts\activate  # Windows
 # source .venv/bin/activate  # Unix
-celery -A app.worker worker --loglevel=info
+python start_worker.py
 ```
 
-Backend runs at `http://localhost:8000`.
+Backend runs at `http://localhost:8000`. The FastAPI app is now lightweight and fast - all heavy processing (agent sync, PR processing, Ollama model pulls) happens in the separate Celery worker process.
 
 **Frontend:**
 

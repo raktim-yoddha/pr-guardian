@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
-import type { GitHubConnection } from "@/lib/types";
+import { api, clearToken } from "@/lib/api";
+import type { GitHubConnection, User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { 
   LayoutDashboard, 
   GitBranch, 
-  Settings, 
   Plus,
   Github,
   LogOut,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  User as UserIcon,
+  Settings
 } from "lucide-react";
 
 export function Sidebar() {
@@ -22,9 +23,12 @@ export function Sidebar() {
   const [connections, setConnections] = useState<GitHubConnection[]>([]);
   const [showConnections, setShowConnections] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [userLoading, setUserLoading] = useState(true);
 
   useEffect(() => {
     loadConnections();
+    loadUser();
   }, []);
 
   const loadConnections = async () => {
@@ -35,6 +39,17 @@ export function Sidebar() {
       console.error("Failed to load GitHub connections:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUser = async () => {
+    try {
+      const userData = await api.me();
+      setUser(userData);
+    } catch (error) {
+      console.error("Failed to load user:", error);
+    } finally {
+      setUserLoading(false);
     }
   };
 
@@ -56,6 +71,11 @@ export function Sidebar() {
     }
   };
 
+  const handleLogout = () => {
+    clearToken();
+    window.location.href = "/login";
+  };
+
   const navItems = [
     { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/agents", icon: GitBranch, label: "Agents" },
@@ -68,24 +88,26 @@ export function Sidebar() {
       {/* Logo */}
       <div className="p-6 border-b">
         <Link href="/dashboard" className="flex items-center gap-2 font-bold text-xl">
-          <GitBranch className="h-6 w-6" />
-          PR Guardian
+          <GitBranch className="h-6 w-6 text-primary" />
+          <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+            PR Guardian
+          </span>
         </Link>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-4">
-        <ul className="space-y-2">
+        <ul className="space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                     isActive(item.href)
-                      ? "bg-primary text-primary-foreground"
-                      : "hover:bg-muted"
+                      ? "bg-primary text-primary-foreground font-medium shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   <Icon className="h-5 w-5" />
@@ -100,7 +122,7 @@ export function Sidebar() {
         <div className="mt-8">
           <button
             onClick={() => setShowConnections(!showConnections)}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground w-full"
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg w-full transition-colors"
           >
             {showConnections ? (
               <ChevronDown className="h-4 w-4" />
@@ -109,18 +131,24 @@ export function Sidebar() {
             )}
             <Github className="h-4 w-4" />
             GitHub Accounts
+            <span className="ml-auto text-xs bg-muted-foreground/20 px-2 py-0.5 rounded-full">
+              {connections.length}
+            </span>
           </button>
 
           {showConnections && (
-            <div className="mt-2 space-y-2 pl-4">
+            <div className="mt-2 space-y-2 pl-2">
               {loading ? (
-                <p className="text-sm text-muted-foreground">Loading...</p>
+                <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                  Loading...
+                </div>
               ) : connections.length === 0 ? (
                 <Button
                   onClick={handleConnectGitHub}
                   variant="outline"
                   size="sm"
-                  className="w-full"
+                  className="w-full justify-start"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Connect Account
@@ -130,12 +158,16 @@ export function Sidebar() {
                   {connections.map((conn) => (
                     <div
                       key={conn.id}
-                      className="flex items-center justify-between p-2 rounded bg-muted text-sm"
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
                     >
-                      <span className="font-medium">{conn.github_username}</span>
+                      <div className="flex items-center gap-2">
+                        <Github className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium text-sm">{conn.github_username}</span>
+                      </div>
                       <button
                         onClick={() => handleDeleteConnection(conn.id)}
-                        className="text-muted-foreground hover:text-destructive"
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                        title="Disconnect"
                       >
                         <LogOut className="h-4 w-4" />
                       </button>
@@ -143,12 +175,12 @@ export function Sidebar() {
                   ))}
                   <Button
                     onClick={handleConnectGitHub}
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="w-full"
+                    className="w-full justify-start text-muted-foreground hover:text-foreground"
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Account
+                    Add Another Account
                   </Button>
                 </>
               )}
@@ -157,17 +189,27 @@ export function Sidebar() {
         </div>
       </nav>
 
-      {/* User Actions */}
-      <div className="p-4 border-t">
+      {/* User Profile */}
+      <div className="p-4 border-t bg-muted/30">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
+            <UserIcon className="h-5 w-5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            {userLoading ? (
+              <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+            ) : user ? (
+              <p className="text-sm font-medium truncate">{user.email}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Not logged in</p>
+            )}
+          </div>
+        </div>
         <Button
           variant="ghost"
-          className="w-full justify-start"
-          onClick={() => {
-            if (typeof window !== "undefined") {
-              localStorage.removeItem("prguardian.token");
-              window.location.href = "/login";
-            }
-          }}
+          size="sm"
+          className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          onClick={handleLogout}
         >
           <LogOut className="h-4 w-4 mr-2" />
           Sign Out
