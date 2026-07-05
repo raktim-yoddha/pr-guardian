@@ -42,21 +42,30 @@ def _heuristic_spam_check(state: PRState) -> tuple[bool, str]:
     title = (state.get("pr_title") or "").strip()
     diff = (state.get("pr_diff") or "").strip()
 
-    # Empty body + no issue link
-    if not body or len(body) < 20:
+    # Empty body + no issue link (more lenient - allow short bodies if they have context)
+    if not body or len(body) < 10:
         if not re.search(r"#\d+", title) and not re.search(r"#\d+", diff[:500]):
-            return True, "Empty PR body with no linked issue"
+            # Only reject if both body is empty AND no issue reference
+            if not body:
+                return True, "Empty PR body with no linked issue"
 
-    # Trivial diff
+    # Trivial diff check - be more intelligent
+    # Only reject if it's truly trivial (whitespace-only or meaningless changes)
     real_lines = [
         l for l in diff.splitlines()
         if l.startswith("+") or l.startswith("-")
         if not l.startswith("+++") and not l.startswith("---")
     ]
-    if len(real_lines) < 5:
-        return True, f"Trivial diff: only {len(real_lines)} changed lines"
+    # Remove whitespace-only changes
+    code_lines = [l for l in real_lines if l.strip() not in ["+", "-"]]
+    
+    # Only reject if there are literally no code changes (just whitespace)
+    if len(code_lines) == 0 and len(real_lines) > 0:
+        return True, "Whitespace-only changes"
+    
+    # Don't reject based on line count alone - let LLM decide if it's meaningful
 
-    # Bot-like patterns
+    # Bot-like patterns (keep these as they're actual spam signals)
     bot_patterns = [
         r"(?i)subscribe|check\s*out|free\s*trial|click\s*here",
         r"(?i)http[s]?://bit\.ly",
@@ -109,7 +118,7 @@ async def spam_detection(state: PRState) -> dict:
             "final_decision": "declined",
             "decline_reason": f"[Spam/Heuristic] {reason}",
             "flag_account": True,
-            "layer_results": {**state.get("layer_results", {}), "spam": {"score": 1.0, "reason": reason}},
+            "layer_results": {**state.get("layer_results", {}), "spam": {"heuristic": True, "reason": reason}},
         }
         await update_layer_progress(state.get("agent_id"), state.get("pr_number"), "spam", result["layer_results"]["spam"])
         return result
@@ -149,7 +158,7 @@ Score this PR's spam/uselessness likelihood. Return JSON: {{"score": 0.0-1.0, "r
         logger.warning("spam_detection: LLM error (%s), passing", exc)
         score, llm_reason = 0.0, f"LLM error: {exc}"
 
-    spam_result = {"score": score, "reason": llm_reason}
+    spam_result = {"llm": True, "score": score, "reason": llm_reason}
     await update_layer_progress(state.get("agent_id"), state.get("pr_number"), "spam", spam_result)
 
     if score > adjusted_threshold:
@@ -163,9 +172,10 @@ Score this PR's spam/uselessness likelihood. Return JSON: {{"score": 0.0-1.0, "r
         }
 
     logger.info("spam_detection: clean — score=%.2f", score)
+    clean_result = {"llm": True, "score": score, "reason": llm_reason}
     return {
         "retrieved_context": context_chunks,
-        "layer_results": {**state.get("layer_results", {}), "spam": spam_result},
+        "layer_results": {**state.get("layer_results", {}), "spam": clean_result},
     }
 
 

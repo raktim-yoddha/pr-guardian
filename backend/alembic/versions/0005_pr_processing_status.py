@@ -55,7 +55,7 @@ def downgrade() -> None:
     # Drop enum type
     processing_status_enum = postgresql.ENUM(
         'detected', 'queued', 'spam_check', 'malicious_code_check',
-        'hijack_proof_check', 'summary_generation', 'completed', 'failed',
+        'prompt_injection_check', 'summary_generation', 'completed', 'failed',
         name='processing_status'
     )
     processing_status_enum.drop(op.get_bind())

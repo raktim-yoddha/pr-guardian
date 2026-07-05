@@ -28,19 +28,20 @@ async def flag_account_node(state: PRState) -> dict:
 
     # Determine which layer caught it.
     layer_caught = "unknown"
-    for layer in ("spam", "malicious_code", "hijack_proof"):
+    for layer in ("spam", "malicious_code", "prompt_injection"):
         if layer in layer_results:
             lr = layer_results[layer]
             if isinstance(lr, dict):
-                if lr.get("score", 0) > settings.SPAM_THRESHOLD:
-                    layer_caught = layer
-                    break
-                if lr.get("regex") or lr.get("llm"):
-                    layer_caught = layer
-                    break
-                if lr.get("static"):
-                    layer_caught = layer
-                    break
+                # For spam layer, check for heuristic or LLM detection
+                if layer == "spam":
+                    if lr.get("heuristic") or lr.get("llm"):
+                        layer_caught = layer
+                        break
+                # For prompt_injection and malicious_code, check for detection signals
+                if layer in ("prompt_injection", "malicious_code"):
+                    if lr.get("regex") or lr.get("llm") or lr.get("encoded") or lr.get("static"):
+                        layer_caught = layer
+                        break
 
     logger.info("flag_account: %s via %s", author, layer_caught)
 

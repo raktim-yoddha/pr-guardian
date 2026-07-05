@@ -121,7 +121,7 @@ async def _update_processing_status(
             
             if status == "queued":
                 processing_status.queued_at = datetime.now(timezone.utc)
-            elif status in ("spam_check", "malicious_code_check", "hijack_proof_check", "summary_generation"):
+            elif status in ("spam_check", "malicious_code_check", "prompt_injection_check", "summary_generation"):
                 if processing_status.started_at is None:
                     processing_status.started_at = datetime.now(timezone.utc)
             elif status in ("completed", "failed"):

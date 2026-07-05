@@ -3,7 +3,7 @@
 Flow (strict sequential gate — a PR that fails any of Layers 1–3 never reaches
 Layer 4):
 
-    START → hijack → spam → malicious → summary → approve → END
+    START → prompt_injection → spam → malicious → summary → approve → END
                │         │          │
                └─[decline]─┴──[decline]┘──► flag_account → decline → END
 
@@ -20,7 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from app.pipeline.nodes.approve_pr import approve_pr
 from app.pipeline.nodes.decline_pr import decline_pr
 from app.pipeline.nodes.flag_account import flag_account_node
-from app.pipeline.nodes.hijack_proof import prompt_injection_detection
+from app.pipeline.nodes.prompt_injection import prompt_injection_detection
 from app.pipeline.nodes.malicious_code import malicious_code_detection
 from app.pipeline.nodes.spam import spam_detection
 from app.pipeline.nodes.summary import summary_layer

@@ -26,7 +26,7 @@ async def list_events(
         default=None, description="approved | declined | error"
     ),
     layer_caught: str | None = Query(
-        default=None, description="Filter by layer that caught the PR (spam, malicious_code, hijack_proof, summary)"
+        default=None, description="Filter by layer that caught the PR (spam, malicious_code, prompt_injection, summary)"
     ),
     start_date: str | None = Query(default=None, description="Filter events from this date onwards (ISO format)"),
     end_date: str | None = Query(default=None, description="Filter events up to this date (ISO format)"),

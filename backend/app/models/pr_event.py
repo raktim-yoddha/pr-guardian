@@ -21,7 +21,7 @@ class PREvent(Base):
     # "approved" | "declined" | "error"
     decision: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     # Which layer caught it. Null for approvals. One of:
-    # "spam" | "malicious_code" | "hijack_proof" | "summary"
+    # "spam" | "malicious_code" | "prompt_injection" | "summary"
     layer_caught: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 

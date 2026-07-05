@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     )
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
+    # Worker-specific pool settings (separate from main app)
+    WORKER_DB_POOL_SIZE: int = 2
+    WORKER_DB_MAX_OVERFLOW: int = 5
 
     # Auth
     SECRET_KEY: str = "change-me-in-production-please-use-a-long-random-string"

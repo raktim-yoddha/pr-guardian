@@ -25,9 +25,10 @@ def process_pr_task(repo_full_name: str, pr_number: int, pr_url: str, author: st
             engine = create_async_engine(
                 settings.DATABASE_URL,
                 echo=False,
-                pool_pre_ping=False,  # Disable to avoid event loop issues
-                pool_size=1,
-                max_overflow=0,
+                pool_pre_ping=True,  # Enable to detect stale connections
+                pool_size=settings.WORKER_DB_POOL_SIZE,
+                max_overflow=settings.WORKER_DB_MAX_OVERFLOW,
+                pool_recycle=3600,  # Recycle connections after 1 hour
             )
             session_maker = async_sessionmaker(
                 bind=engine,
@@ -492,9 +493,10 @@ def retry_failed_prs_task():
             engine = create_async_engine(
                 settings.DATABASE_URL,
                 echo=False,
-                pool_pre_ping=False,  # Disable to avoid event loop issues
-                pool_size=1,
-                max_overflow=0,
+                pool_pre_ping=True,  # Enable to detect stale connections
+                pool_size=settings.WORKER_DB_POOL_SIZE,
+                max_overflow=settings.WORKER_DB_MAX_OVERFLOW,
+                pool_recycle=3600,  # Recycle connections after 1 hour
             )
             session_maker = async_sessionmaker(
                 bind=engine,
