@@ -188,6 +188,9 @@ export const api = {
   } = {}): Promise<any[]> {
     return request<any[]>("/api/events/processing-status", { query: params });
   },
+  async getPRDetail(agentId: number, prNumber: number): Promise<any> {
+    return request<any>(`/api/events/pr-detail/${agentId}/${prNumber}`);
+  },
 
   // ----------------------------------------------------------- dashboard
   async getStats(agentId?: number): Promise<DashboardStats> {

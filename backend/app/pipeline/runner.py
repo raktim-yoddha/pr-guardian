@@ -164,8 +164,10 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
             )
             db.add(processing_status)
             await db.commit()
+            logger.info(f"run_pipeline: created processing status for PR #{pr_number} with status 'queued'")
         else:
             await _update_processing_status(agent.id, pr_number, "queued")
+            logger.info(f"run_pipeline: updated processing status for PR #{pr_number} to 'queued'")
 
     title, body, diff = await _fetch_pr(repo_full_name, pr_number, installation_id=agent.github_installation_id)
     if not title and pr_title:
@@ -197,7 +199,11 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
     }
 
     try:
-        await _update_processing_status(agent.id, pr_number, "hijack_proof_check")
+        # Update status to first layer (prompt_injection_check) before starting pipeline
+        await _update_processing_status(agent.id, pr_number, "prompt_injection_check")
+        logger.info(f"run_pipeline: starting pipeline for PR #{pr_number}")
+        
+        # Run the pipeline - each node will update its own status
         final_state = await pipeline.ainvoke(state)
         decision = final_state.get("final_decision", "approved")
         elapsed = time.monotonic() - t0

@@ -74,8 +74,9 @@ async def _detect_prs_for_agent(
                     pr_url=pr_url,
                     pr_title=pr_title,
                     author_github=author or "unknown",
-                    status="detected",
-                    detected_at=datetime.now(timezone.utc)
+                    status="queued",
+                    detected_at=datetime.now(timezone.utc),
+                    queued_at=datetime.now(timezone.utc)
                 )
                 db.add(processing_status)
                 detected_count += 1
@@ -362,8 +363,9 @@ async def detect_prs(
                     pr_url=pr_url,
                     pr_title=pr_title,
                     author_github=author or "unknown",
-                    status="detected",
-                    detected_at=datetime.now(timezone.utc)
+                    status="queued",
+                    detected_at=datetime.now(timezone.utc),
+                    queued_at=datetime.now(timezone.utc)
                 )
                 db.add(processing_status)
                 detected_count += 1

@@ -157,6 +157,8 @@ async def github_webhook(
 
     pr_number = pr.get("number")
     pr_url = pr.get("html_url") or ""
+    pr_title = pr.get("title") or ""
+    pr_body = pr.get("body") or ""
     author = ((pr.get("user") or {}).get("login")) or "unknown"
     if not pr_number:
         raise HTTPException(
@@ -186,12 +188,66 @@ async def github_webhook(
         )
         return {"status": "ignored", "reason": "payload exceeds size limit"}
 
-    # 5. Dispatch — do NOT block the webhook response.
+    # 5. Create or update processing status entry immediately (before background task)
+    # This ensures the frontend sees the PR as "queued" (20%) instead of stuck at "detected" (10%)
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.models.agent import Agent
+    from app.models.pr_processing_status import PRProcessingStatus
+    
+    async def _create_processing_status():
+        async with AsyncSessionLocal() as db:
+            agent = await db.scalar(
+                select(Agent)
+                .where(Agent.repo_full_name == repo_full_name)
+                .where(Agent.is_active.is_(True))
+                .order_by(Agent.id.desc())
+                .limit(1)
+            )
+            if agent:
+                existing_status = await db.scalar(
+                    select(PRProcessingStatus).where(
+                        PRProcessingStatus.agent_id == agent.id,
+                        PRProcessingStatus.pr_number == pr_number
+                    )
+                )
+                if not existing_status:
+                    processing_status = PRProcessingStatus(
+                        agent_id=agent.id,
+                        pr_number=pr_number,
+                        pr_url=pr_url,
+                        pr_title=pr_title,
+                        author_github=author,
+                        status="queued",
+                        detected_at=datetime.now(timezone.utc),
+                        queued_at=datetime.now(timezone.utc)
+                    )
+                    db.add(processing_status)
+                    await db.commit()
+                    logger.info(f"webhook: created processing status for PR #{pr_number} with status 'queued'")
+                else:
+                    # Update existing status to queued if it's stuck at detected
+                    if existing_status.status == "detected":
+                        existing_status.status = "queued"
+                        existing_status.queued_at = datetime.now(timezone.utc)
+                        await db.commit()
+                        logger.info(f"webhook: updated processing status for PR #{pr_number} from 'detected' to 'queued'")
+    
+    # Run this synchronously before dispatching
+    import asyncio
+    try:
+        asyncio.run(_create_processing_status())
+    except Exception as exc:
+        logger.warning("webhook: failed to create/update processing status: %s", exc)
+
+    # 6. Dispatch — do NOT block the webhook response.
     process_pr_task.delay(
         repo_full_name=repo_full_name,
         pr_number=int(pr_number),
         pr_url=pr_url,
         author=author,
+        pr_title=pr_title,
+        pr_body=pr_body,
     )
     return {"status": "accepted", "pr_number": str(pr_number)}
 

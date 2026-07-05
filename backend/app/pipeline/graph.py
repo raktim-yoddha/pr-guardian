@@ -20,7 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from app.pipeline.nodes.approve_pr import approve_pr
 from app.pipeline.nodes.decline_pr import decline_pr
 from app.pipeline.nodes.flag_account import flag_account_node
-from app.pipeline.nodes.hijack_proof import hijack_proof_detection
+from app.pipeline.nodes.hijack_proof import prompt_injection_detection
 from app.pipeline.nodes.malicious_code import malicious_code_detection
 from app.pipeline.nodes.spam import spam_detection
 from app.pipeline.nodes.summary import summary_layer
@@ -40,7 +40,7 @@ def _route_after_layer(state: PRState, *, next_node: str) -> str:
     return next_node
 
 
-def _after_hijack(state: PRState) -> str:
+def _after_prompt_injection(state: PRState) -> str:
     return _route_after_layer(state, next_node="spam")
 
 
@@ -56,7 +56,7 @@ def build_pipeline():  # type: ignore[no-untyped-def]
     """Compile and return the runnable LangGraph pipeline."""
     graph = StateGraph(PRState)
 
-    graph.add_node("hijack_proof", hijack_proof_detection)
+    graph.add_node("prompt_injection", prompt_injection_detection)
     graph.add_node("spam", spam_detection)
     graph.add_node("malicious_code", malicious_code_detection)
     graph.add_node("summary", summary_layer)
@@ -64,8 +64,8 @@ def build_pipeline():  # type: ignore[no-untyped-def]
     graph.add_node("approve_pr", approve_pr)
     graph.add_node("decline_pr", decline_pr)
 
-    graph.add_edge(START, "hijack_proof")
-    graph.add_conditional_edges("hijack_proof", _after_hijack)
+    graph.add_edge(START, "prompt_injection")
+    graph.add_conditional_edges("prompt_injection", _after_prompt_injection)
     graph.add_conditional_edges("spam", _after_spam)
     graph.add_conditional_edges("malicious_code", _after_malicious)
     graph.add_edge("summary", "approve_pr")

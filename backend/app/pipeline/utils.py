@@ -23,9 +23,9 @@ async def update_layer_progress(
         if processing_status:
             # Update status to the current layer
             status_map = {
+                "prompt_injection": "prompt_injection_check",
                 "spam": "spam_check",
                 "malicious_code": "malicious_code_check",
-                "hijack_proof": "hijack_proof_check",
                 "summary": "summary_generation"
             }
             processing_status.status = status_map.get(layer_name, processing_status.status)
@@ -40,3 +40,8 @@ async def update_layer_progress(
                 processing_status.started_at = datetime.now(timezone.utc)
             
             await db.commit()
+            
+            # Log the progress update
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Updated PR #{pr_number} progress: layer={layer_name}, status={processing_status.status}")

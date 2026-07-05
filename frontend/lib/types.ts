@@ -108,6 +108,34 @@ export interface FlaggedAccount {
   updated_at: string;
 }
 
+export interface PRProcessingStatus {
+  id: number;
+  agent_id: number;
+  pr_number: number;
+  pr_url: string;
+  pr_title: string;
+  author_github: string;
+  status: string;
+  layer_results: Record<string, any> | null;
+  final_decision: string | null;
+  decline_reason: string | null;
+  error_message: string | null;
+  detected_at: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface PRDetail {
+  processing_status: PRProcessingStatus | null;
+  event: PREvent | null;
+  agent: {
+    id: number;
+    name: string;
+    repo_full_name: string;
+  };
+}
+
 // ----------------------------------------------------------- GitHub OAuth ----
 
 export interface GitHubConnection {

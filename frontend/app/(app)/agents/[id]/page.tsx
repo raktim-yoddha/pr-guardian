@@ -113,6 +113,46 @@ export default function AgentDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
+  // Auto-refresh processing status every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadProcessingStatus();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [loadProcessingStatus]);
+
+  const getProgressPercentage = (status: string) => {
+    const progressMap: Record<string, number> = {
+      detected: 10,
+      queued: 20,
+      hijack_proof_check: 40,
+      spam_check: 60,
+      malicious_code_check: 80,
+      summary_generation: 90,
+      completed: 100,
+      failed: 0,
+    };
+    return progressMap[status] || 10;
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labelMap: Record<string, string> = {
+      detected: "Detected",
+      queued: "Queued",
+      hijack_proof_check: "Hijack Check",
+      spam_check: "Spam Check",
+      malicious_code_check: "Malicious Code",
+      summary_generation: "Summary",
+      completed: "Complete",
+      failed: "Failed",
+    };
+    return labelMap[status] || status;
+  };
+
+  const getProcessingStatusForPR = (prNumber: number) => {
+    return processingStatuses.find(ps => ps.pr_number === prNumber);
+  };
+
   async function handleToggle() {
     if (!agent) return;
     setToggling(true);
@@ -316,119 +356,15 @@ export default function AgentDetailPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>PR Processing Status</CardTitle>
+          <CardTitle>PR Events & Processing</CardTitle>
           <CardDescription>
-            Real-time status of PRs being processed through the 4-layer pipeline.
+            All PRs for this agent with real-time processing progress.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {processingStatuses.length === 0 ? (
+          {events.length === 0 && processingStatuses.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No PRs detected yet. The agent will automatically detect open PRs after ingestion completes.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {processingStatuses.map((status) => (
-                <div key={status.id} className="rounded-lg border p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={status.pr_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium text-primary underline"
-                        >
-                          #{status.pr_number}
-                        </a>
-                        <span className="text-sm text-muted-foreground">
-                          by {status.author_github}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground line-clamp-1">
-                        {status.pr_title}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        status.status === "completed"
-                          ? "success"
-                          : status.status === "failed"
-                          ? "destructive"
-                          : status.status === "detected" || status.status === "queued"
-                          ? "secondary"
-                          : "default"
-                      }
-                    >
-                      {status.status}
-                    </Badge>
-                  </div>
-                  
-                  {status.status !== "detected" && status.status !== "queued" && (
-                    <div className="mt-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>Layers:</span>
-                        <span className={status.layer_results?.hijack_proof ? "text-green-600" : "text-muted-foreground"}>
-                          ✓ Hijack Proof
-                        </span>
-                        <span className={status.layer_results?.spam ? "text-green-600" : "text-muted-foreground"}>
-                          ✓ Spam
-                        </span>
-                        <span className={status.layer_results?.malicious_code ? "text-green-600" : "text-muted-foreground"}>
-                          ✓ Malicious Code
-                        </span>
-                        <span className={status.layer_results?.summary ? "text-green-600" : "text-muted-foreground"}>
-                          ✓ Summary
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {status.final_decision && (
-                    <div className="mt-2 text-sm">
-                      <span className="font-medium">Decision: </span>
-                      <Badge
-                        variant={status.final_decision === "approved" ? "success" : "destructive"}
-                      >
-                        {status.final_decision}
-                      </Badge>
-                      {status.decline_reason && (
-                        <span className="ml-2 text-muted-foreground">- {status.decline_reason}</span>
-                      )}
-                    </div>
-                  )}
-                  
-                  {status.error_message && (
-                    <div className="mt-2 text-sm text-destructive">
-                      Error: {status.error_message}
-                    </div>
-                  )}
-                  
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Detected: {status.detected_at ? new Date(status.detected_at).toLocaleString() : "N/A"}
-                    {status.started_at && ` • Started: ${new Date(status.started_at).toLocaleString()}`}
-                    {status.completed_at && ` • Completed: ${new Date(status.completed_at).toLocaleString()}`}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>PR Events History</CardTitle>
-          <CardDescription>
-            Completed pipeline decisions for this agent. Each PR runs through spam →
-            malicious code → hijack-proof → summary layers.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {events.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No events yet. Install the GitHub App and open a PR on the
-              connected repo.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -437,48 +373,132 @@ export default function AgentDetailPage() {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="pb-2 pr-4 font-medium">Date</th>
                     <th className="pb-2 pr-4 font-medium">PR #</th>
+                    <th className="pb-2 pr-4 font-medium">Title</th>
                     <th className="pb-2 pr-4 font-medium">Author</th>
                     <th className="pb-2 pr-4 font-medium">Decision</th>
+                    <th className="pb-2 pr-4 font-medium">Progress</th>
                     <th className="pb-2 pr-4 font-medium">Layer</th>
                     <th className="pb-2 font-medium">Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {events.map((ev) => (
-                    <tr key={ev.id} className="border-b last:border-0">
-                      <td className="py-2 pr-4 text-muted-foreground">
-                        {new Date(ev.created_at).toLocaleString()}
-                      </td>
-                      <td className="py-2 pr-4">
-                        <a
-                          href={ev.pr_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium text-primary underline"
-                        >
-                          #{ev.pr_number}
-                        </a>
-                      </td>
-                      <td className="py-2 pr-4">{ev.author_github}</td>
-                      <td className="py-2 pr-4">
-                        <Badge
-                          variant={
-                            ev.decision === "approved"
-                              ? "success"
-                              : "destructive"
-                          }
-                        >
-                          {ev.decision}
-                        </Badge>
-                      </td>
-                      <td className="py-2 pr-4">
-                        {ev.layer_caught ?? "—"}
-                      </td>
-                      <td className="py-2 text-muted-foreground">
-                        {ev.reason ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {/* Show processing statuses first */}
+                  {processingStatuses.map((status) => {
+                    const progress = getProgressPercentage(status.status);
+                    const isCompleted = status.status === "completed";
+                    
+                    return (
+                      <tr 
+                        key={status.id} 
+                        className="border-b last:border-0 hover:bg-muted/50 cursor-pointer"
+                        onClick={() => router.push(`/agents/${agentId}/pr/${status.pr_number}`)}
+                      >
+                        <td className="py-2 pr-4 text-muted-foreground">
+                          {status.detected_at ? new Date(status.detected_at).toLocaleString() : "—"}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span className="font-medium text-primary hover:underline">
+                            #{status.pr_number}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 max-w-[200px] truncate">
+                          {status.pr_title}
+                        </td>
+                        <td className="py-2 pr-4">{status.author_github}</td>
+                        <td className="py-2 pr-4">
+                          {isCompleted ? (
+                            <Badge variant={status.final_decision === "approved" ? "success" : "destructive"}>
+                              {status.final_decision}
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">
+                              {getStatusLabel(status.status)}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4 min-w-[150px]">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-24 bg-secondary rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-500 ease-out ${isCompleted ? 'bg-green-500' : 'bg-primary'}`}
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-8">
+                              {progress}%
+                            </span>
+                            {isCompleted && (
+                              <Badge variant="success" className="text-xs">✓</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-4">
+                          {status.final_decision ? (status.final_decision === "approved" ? "—" : "pipeline") : "—"}
+                        </td>
+                        <td className="py-2 max-w-[200px]">
+                          {status.error_message ? (
+                            <Badge variant="destructive" className="text-xs" title={status.error_message}>
+                              Error
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground truncate block">
+                              {status.decline_reason || "—"}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  
+                  {/* Show completed events that don't have active processing status */}
+                  {events
+                    .filter(ev => !processingStatuses.find(ps => ps.pr_number === ev.pr_number))
+                    .map((ev) => (
+                      <tr 
+                        key={ev.id} 
+                        className="border-b last:border-0 hover:bg-muted/50 cursor-pointer"
+                        onClick={() => router.push(`/agents/${agentId}/pr/${ev.pr_number}`)}
+                      >
+                        <td className="py-2 pr-4 text-muted-foreground">
+                          {new Date(ev.created_at).toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span className="font-medium text-primary hover:underline">
+                            #{ev.pr_number}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 max-w-[200px] truncate">
+                          —
+                        </td>
+                        <td className="py-2 pr-4">{ev.author_github}</td>
+                        <td className="py-2 pr-4">
+                          <Badge
+                            variant={
+                              ev.decision === "approved"
+                                ? "success"
+                                : "destructive"
+                            }
+                          >
+                            {ev.decision}
+                          </Badge>
+                        </td>
+                        <td className="py-2 pr-4 min-w-[150px]">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-24 bg-green-500 rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500" style={{ width: "100%" }} />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-8">100%</span>
+                            <Badge variant="success" className="text-xs">✓</Badge>
+                          </div>
+                        </td>
+                        <td className="py-2 pr-4">
+                          {ev.layer_caught ?? "—"}
+                        </td>
+                        <td className="py-2 text-muted-foreground max-w-[200px] truncate">
+                          {ev.reason ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
