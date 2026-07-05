@@ -11,17 +11,65 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.agent import Agent
+from app.models.ingestion_log import IngestionLog
 from app.services.chunker import chunk_text, estimate_tokens
 from app.services.github import GithubError, github_client
 from app.services.llm import get_embedding, resolve_provider
 from app.services.vectorstore import vector_store
 
 logger = logging.getLogger(__name__)
+
+
+async def _log_ingestion_step(
+    agent_id: int,
+    step: str,
+    message: str,
+    *,
+    current: int | None = None,
+    total: int | None = None,
+    status: str = "info",
+    update: bool = False,
+) -> None:
+    """Log an ingestion step to the database.
+    
+    If update=True, updates the most recent log entry for this step instead of creating a new one.
+    """
+    async with AsyncSessionLocal() as db:
+        if update:
+            # Update the most recent log entry for this step
+            result = await db.execute(
+                select(IngestionLog)
+                .where(IngestionLog.agent_id == agent_id)
+                .where(IngestionLog.step == step)
+                .order_by(IngestionLog.created_at.desc())
+                .limit(1)
+            )
+            log = result.scalar_one_or_none()
+            if log:
+                log.message = message
+                log.current = current
+                log.total = total
+                log.status = status
+                await db.commit()
+                logger.info(f"ingestion[{agent_id}]: {step} - {message}")
+                return
+        
+        log = IngestionLog(
+            agent_id=agent_id,
+            step=step,
+            message=message,
+            current=current,
+            total=total,
+            status=status,
+        )
+        db.add(log)
+        await db.commit()
+    logger.info(f"ingestion[{agent_id}]: {step} - {message}")
 
 
 def _is_text_path(path: str) -> bool:
@@ -43,13 +91,21 @@ def _is_text_path(path: str) -> bool:
 
 
 async def _fetch_repo_chunks(
-    repo_full_name: str, branch: str | None, provider: str
+    agent_id: int,
+    repo_full_name: str, 
+    branch: str | None, 
+    provider: str, 
+    installation_id: int | None = None
 ) -> list[tuple[str, str, list[float]]]:
     """Return (source_ref, content, embedding) triples for all repo files."""
-    blobs = await github_client.get_tree_blobs(repo_full_name, branch=branch)
+    await _log_ingestion_step(agent_id, "fetch_repo_tree", f"Fetching repo tree for {repo_full_name}")
+    blobs = await github_client.get_tree_blobs(repo_full_name, branch=branch, installation_id=installation_id)
+    await _log_ingestion_step(agent_id, "fetch_repo_tree", f"Found {len(blobs)} blobs in repo tree")
 
     triples: list[tuple[str, str, list[float]]] = []
     processed = 0
+    total_blobs = len(blobs[: settings.INGESTION_MAX_FILES])
+    
     for blob in blobs[: settings.INGESTION_MAX_FILES]:
         path = blob.get("path", "")
         size = int(blob.get("size", 0) or 0)
@@ -58,40 +114,70 @@ async def _fetch_repo_chunks(
         sha = blob.get("sha")
         if not sha:
             continue
+        
+        await _log_ingestion_step(agent_id, "fetch_file", f"Fetching {path}", current=processed, total=total_blobs, update=True)
+        
         try:
-            content = await github_client.get_blob_content(repo_full_name, sha)
+            content = await github_client.get_blob_content(repo_full_name, sha, installation_id=installation_id)
         except GithubError as exc:
-            logger.warning("ingestion: skip %s (%s)", path, exc)
+            await _log_ingestion_step(agent_id, "fetch_file", f"Skipping {path}: {exc}", status="warning", current=processed, total=total_blobs, update=True)
             continue
-
+        
+        processed += 1
+        chunk_count = 0
         for chunk in chunk_text(content):
             text = f"# file: {path}\n{chunk.text}"
-            embedding = await get_embedding(text, provider=provider)  # type: ignore[arg-type]
-            triples.append((path, text, embedding))
-        processed += 1
+            try:
+                embedding = await get_embedding(text, provider=provider)  # type: ignore[arg-type]
+                triples.append((path, text, embedding))
+                chunk_count += 1
+            except Exception as exc:
+                await _log_ingestion_step(agent_id, "embedding", f"Failed to embed chunk in {path}: {exc}", status="error")
+                continue
 
-    logger.info("ingestion[repo]: %s files → %s chunks", processed, len(triples))
+    await _log_ingestion_step(
+        agent_id, 
+        "fetch_repo_complete", 
+        f"Processed {processed} files → {len(triples)} chunks",
+        current=processed,
+        total=len(triples),
+        status="success"
+    )
     return triples
 
 
 async def _fetch_issue_chunks(
-    repo_full_name: str, provider: str
+    agent_id: int,
+    repo_full_name: str, 
+    provider: str, 
+    installation_id: int | None = None
 ) -> list[tuple[str, str, list[float]]]:
     """Return (source_ref, content, embedding) triples for issues + comments."""
-    issues = await github_client.list_issues(repo_full_name, state="all")
+    await _log_ingestion_step(agent_id, "fetch_issues", f"Fetching issues for {repo_full_name}")
+    issues = await github_client.list_issues(repo_full_name, state="all", installation_id=installation_id)
     # GitHub's issues endpoint also returns PRs; filter PRs out.
     issues = [i for i in issues if "pull_request" not in i]
+    await _log_ingestion_step(agent_id, "fetch_issues", f"Found {len(issues)} issues (excluding PRs)")
 
     triples: list[tuple[str, str, list[float]]] = []
-    for issue in issues:
+    for idx, issue in enumerate(issues):
         number = issue.get("number")
         title = issue.get("title") or ""
         body = issue.get("body") or ""
         state = issue.get("state") or "open"
         ref = f"issues/{number}"
+        
+        if (idx + 1) % 5 == 0 or idx + 1 == len(issues):
+            await _log_ingestion_step(
+                agent_id,
+                "process_issues",
+                f"Processed {idx + 1}/{len(issues)} issues",
+                current=idx + 1,
+                total=len(issues)
+            )
 
         try:
-            comments = await github_client.get_issue_comments(repo_full_name, number)
+            comments = await github_client.get_issue_comments(repo_full_name, number, installation_id=installation_id)
         except GithubError:
             comments = []
         comment_bodies = [c.get("body") or "" for c in comments]
@@ -104,7 +190,14 @@ async def _fetch_issue_chunks(
             embedding = await get_embedding(chunk.text, provider=provider)  # type: ignore[arg-type]
             triples.append((ref, chunk.text, embedding))
 
-    logger.info("ingestion[issues]: %s issues → %s chunks", len(issues), len(triples))
+    await _log_ingestion_step(
+        agent_id,
+        "fetch_issues_complete",
+        f"Processed {len(issues)} issues → {len(triples)} chunks",
+        current=len(issues),
+        total=len(triples),
+        status="success"
+    )
     return triples
 
 
@@ -125,6 +218,16 @@ async def _set_status(
         await db.commit()
 
 
+async def _check_cancelled(agent_id: int) -> bool:
+    """Check if ingestion was cancelled."""
+    async with AsyncSessionLocal() as db:
+        agent = await db.get(Agent, agent_id)
+        if agent and agent.ingestion_status == "cancelled":
+            await _log_ingestion_step(agent_id, "ingestion_cancelled", "Ingestion cancelled by user", status="warning")
+            return True
+    return False
+
+
 async def ingest_agent(agent_id: int) -> int:
     """Run a full ingestion for an agent. Returns the chunk count stored."""
     async with AsyncSessionLocal() as db:
@@ -133,17 +236,62 @@ async def ingest_agent(agent_id: int) -> int:
             raise ValueError(f"Agent {agent_id} not found")
         repo_full_name = agent.repo_full_name
         provider = resolve_provider(agent)
+        installation_id = agent.github_installation_id
 
     await _set_status(agent_id, "running")
-    logger.info("ingestion: start agent=%s repo=%s provider=%s",
-                agent_id, repo_full_name, provider)
+    await _log_ingestion_step(
+        agent_id,
+        "ingestion_start",
+        f"Starting ingestion for {repo_full_name} with {provider}",
+        status="info"
+    )
+
+    # Check if Ollama is accessible before starting
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            model_names = [m.get("name") for m in models]
+            await _log_ingestion_step(
+                agent_id,
+                "check_ollama",
+                f"Ollama accessible. Available models: {', '.join(model_names)}",
+                status="success"
+            )
+    except Exception as exc:
+        await _log_ingestion_step(
+            agent_id,
+            "check_ollama",
+            f"Ollama not accessible at {settings.OLLAMA_BASE_URL}: {exc}",
+            status="error"
+        )
+        raise RuntimeError(f"Ollama not accessible: {exc}")
 
     try:
         # Reset existing chunks for this agent (idempotent re-sync).
+        await _log_ingestion_step(agent_id, "reset_vector_store", "Resetting vector store")
         await vector_store.reset(agent_id)
+        await _log_ingestion_step(agent_id, "reset_vector_store", "Vector store reset complete", status="success")
 
-        repo_triples = await _fetch_repo_chunks(repo_full_name, None, provider)
-        issue_triples = await _fetch_issue_chunks(repo_full_name, provider)
+        repo_triples = await _fetch_repo_chunks(agent_id, repo_full_name, None, provider, installation_id)
+        
+        if await _check_cancelled(agent_id):
+            await _set_status(agent_id, "cancelled")
+            raise RuntimeError("Ingestion cancelled")
+        
+        issue_triples = await _fetch_issue_chunks(agent_id, repo_full_name, provider, installation_id)
+        
+        if await _check_cancelled(agent_id):
+            await _set_status(agent_id, "cancelled")
+            raise RuntimeError("Ingestion cancelled")
+        
+        await _log_ingestion_step(
+            agent_id,
+            "store_chunks",
+            f"Storing {len(repo_triples) + len(issue_triples)} chunks in vector store"
+        )
 
         # Embedding already happened per-chunk above; build the store tuples.
         chunks = [
@@ -160,9 +308,32 @@ async def ingest_agent(agent_id: int) -> int:
             chunk_count=stored,
             last_ingested_at=datetime.now(timezone.utc),
         )
-        logger.info("ingestion: done agent=%s chunks=%s", agent_id, stored)
+        await _log_ingestion_step(
+            agent_id,
+            "ingestion_complete",
+            f"Ingestion complete: {stored} chunks stored",
+            current=stored,
+            status="success"
+        )
         return stored
+    except RuntimeError as exc:
+        if "cancelled" in str(exc):
+            await _set_status(agent_id, "cancelled")
+            raise
+        await _log_ingestion_step(
+            agent_id,
+            "ingestion_error",
+            f"Ingestion failed: {exc}",
+            status="error"
+        )
+        await _set_status(agent_id, "failed")
+        raise
     except Exception as exc:
-        logger.exception("ingestion: failed agent=%s: %s", agent_id, exc)
+        await _log_ingestion_step(
+            agent_id,
+            "ingestion_error",
+            f"Ingestion failed: {exc}",
+            status="error"
+        )
         await _set_status(agent_id, "failed")
         raise

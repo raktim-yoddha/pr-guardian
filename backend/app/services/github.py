@@ -11,6 +11,7 @@ in Phase 3.
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +25,8 @@ from app.core.config import settings
 from app.services.resilience import retry_async
 
 GITHUB_API = "https://api.github.com"
+
+logger = logging.getLogger(__name__)
 
 
 class GithubError(RuntimeError):
@@ -109,8 +112,37 @@ class GithubClient:
 
         # Fast path: use the per-agent installation_id if we have one.
         iid = installation_id or self._installation_id
+        if iid is not None:
+            # Try to use the provided installation_id
+            try:
+                # Cache check.
+                cached = self._install_tokens.get(iid)
+                if cached and cached[1] > time.time() + 60:
+                    return cached[0]
+
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(
+                        f"{GITHUB_API}/app/installations/{iid}/access_tokens",
+                        headers={"Authorization": f"Bearer {app_jwt}"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    token = data["token"]
+                    expires_at = time.time() + 3600  # tokens last 1h
+                    self._install_tokens[iid] = (token, expires_at)
+                    return token
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    # Installation ID is invalid, fall back to auto-discovery
+                    logger.warning(f"GitHub App installation {iid} not found (404), falling back to auto-discovery")
+                    iid = None
+                else:
+                    raise GithubError(
+                        f"GitHub API error for installation {iid}: {exc}"
+                    ) from exc
+
+        # Auto-discover: look up installation by repo/owner.
         if iid is None:
-            # Auto-discover: look up installation by repo/owner.
             owner = repo_full_name.split("/", 1)[0]
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 try:
@@ -150,8 +182,8 @@ class GithubClient:
             self._install_tokens[iid] = (token, expires_at)
             return token
 
-    async def _headers(self, repo_full_name: str) -> dict[str, str]:
-        token = await self._resolve_token(repo_full_name)
+    async def _headers(self, repo_full_name: str, *, installation_id: int | None = None) -> dict[str, str]:
+        token = await self._resolve_token(repo_full_name, installation_id=installation_id)
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -174,8 +206,8 @@ class GithubClient:
 
     # ----------------------------------------------------------------- public
 
-    async def get_repo(self, repo_full_name: str) -> RepoMeta:
-        headers = await self._headers(repo_full_name)
+    async def get_repo(self, repo_full_name: str, *, installation_id: int | None = None) -> RepoMeta:
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_repo_raw(repo_full_name, headers),
             description=f"get_repo({repo_full_name})",
@@ -195,9 +227,9 @@ class GithubClient:
         )
 
     async def list_issues(
-        self, repo_full_name: str, state: str = "all", per_page: int = 100
+        self, repo_full_name: str, state: str = "all", per_page: int = 100, *, installation_id: int | None = None
     ) -> list[dict[str, Any]]:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_issues_raw(repo_full_name, state, per_page, headers),
             description=f"list_issues({repo_full_name})",
@@ -213,9 +245,9 @@ class GithubClient:
             return self._check(resp)
 
     async def list_pull_requests(
-        self, repo_full_name: str, state: str = "open", per_page: int = 100
+        self, repo_full_name: str, state: str = "open", per_page: int = 100, *, installation_id: int | None = None
     ) -> list[dict[str, Any]]:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_pull_requests_raw(repo_full_name, state, per_page, headers),
             description=f"list_pull_requests({repo_full_name})",
@@ -230,8 +262,8 @@ class GithubClient:
             )
             return self._check(resp)
 
-    async def get_pr(self, repo_full_name: str, pr_number: int) -> dict[str, Any]:
-        headers = await self._headers(repo_full_name)
+    async def get_pr(self, repo_full_name: str, pr_number: int, *, installation_id: int | None = None) -> dict[str, Any]:
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_pr_raw(repo_full_name, pr_number, headers),
             description=f"get_pr({repo_full_name}#{pr_number})",
@@ -244,8 +276,8 @@ class GithubClient:
             )
             return self._check(resp)
 
-    async def get_pr_diff(self, repo_full_name: str, pr_number: int) -> str:
-        headers = await self._headers(repo_full_name)
+    async def get_pr_diff(self, repo_full_name: str, pr_number: int, *, installation_id: int | None = None) -> str:
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         headers["Accept"] = "application/vnd.github.v3.diff"
         return await retry_async(
             lambda: self._fetch_diff_raw(repo_full_name, pr_number, headers),
@@ -266,9 +298,9 @@ class GithubClient:
     # ------------------------------------------------------ ingestion helpers
 
     async def get_tree_blobs(
-        self, repo_full_name: str, branch: str | None = None
+        self, repo_full_name: str, branch: str | None = None, *, installation_id: int | None = None
     ) -> list[dict[str, Any]]:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_tree_raw(repo_full_name, branch, headers),
             description=f"get_tree_blobs({repo_full_name})",
@@ -290,9 +322,9 @@ class GithubClient:
         return [e for e in data.get("tree", []) if e.get("type") == "blob"]
 
     async def get_blob_content(
-        self, repo_full_name: str, file_sha: str
+        self, repo_full_name: str, file_sha: str, *, installation_id: int | None = None
     ) -> str:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_blob_raw(repo_full_name, file_sha, headers),
             description=f"get_blob_content({file_sha[:8]})",
@@ -317,9 +349,9 @@ class GithubClient:
         return content
 
     async def get_issue_comments(
-        self, repo_full_name: str, issue_number: int
+        self, repo_full_name: str, issue_number: int, *, installation_id: int | None = None
     ) -> list[dict[str, Any]]:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         return await retry_async(
             lambda: self._fetch_comments_raw(repo_full_name, issue_number, headers),
             description=f"get_issue_comments({issue_number})",
@@ -337,9 +369,9 @@ class GithubClient:
     # ------------------------------------------------- PR write operations
 
     async def post_pr_comment(
-        self, repo_full_name: str, pr_number: int, body: str
+        self, repo_full_name: str, pr_number: int, body: str, *, installation_id: int | None = None
     ) -> None:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         await retry_async(
             lambda: self._post_comment_raw(repo_full_name, pr_number, body, headers),
             description=f"post_pr_comment({repo_full_name}#{pr_number})",
@@ -362,8 +394,9 @@ class GithubClient:
         title: str | None = None,
         body: str | None = None,
         state: str | None = None,
+        installation_id: int | None = None,
     ) -> None:
-        headers = await self._headers(repo_full_name)
+        headers = await self._headers(repo_full_name, installation_id=installation_id)
         payload: dict[str, Any] = {}
         if title is not None:
             payload["title"] = title

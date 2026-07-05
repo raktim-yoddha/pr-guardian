@@ -38,18 +38,18 @@ async def _load_agent(repo_full_name: str) -> Agent | None:
         )
 
 
-async def _fetch_pr(repo_full_name: str, pr_number: int) -> tuple[str, str, str]:
+async def _fetch_pr(repo_full_name: str, pr_number: int, installation_id: int | None = None) -> tuple[str, str, str]:
     """Return (title, body, diff) for the PR. Falls back to empty strings."""
     title = body = diff = ""
     try:
-        pr = await github_client.get_pr(repo_full_name, pr_number)
+        pr = await github_client.get_pr(repo_full_name, pr_number, installation_id=installation_id)
         title = pr.get("title") or ""
         body = pr.get("body") or ""
     except GithubError as exc:
         logger.warning("run_pipeline: get_pr failed (%s)", exc)
 
     try:
-        diff = await github_client.get_pr_diff(repo_full_name, pr_number)
+        diff = await github_client.get_pr_diff(repo_full_name, pr_number, installation_id=installation_id)
     except GithubError as exc:
         logger.warning("run_pipeline: get_pr_diff failed (%s)", exc)
 
@@ -167,7 +167,7 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
         else:
             await _update_processing_status(agent.id, pr_number, "queued")
 
-    title, body, diff = await _fetch_pr(repo_full_name, pr_number)
+    title, body, diff = await _fetch_pr(repo_full_name, pr_number, installation_id=agent.github_installation_id)
     if not title and pr_title:
         title = pr_title
     if not body and pr_body:

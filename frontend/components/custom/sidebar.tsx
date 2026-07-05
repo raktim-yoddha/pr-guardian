@@ -10,13 +10,13 @@ import { useTheme } from "@/components/custom/theme-provider";
 import { 
   LayoutDashboard, 
   GitBranch, 
+  Shield,
   Plus,
   Github,
   LogOut,
   ChevronDown,
   ChevronRight,
   User as UserIcon,
-  Settings,
   Moon,
   Sun,
   Monitor
@@ -84,6 +84,7 @@ export function Sidebar() {
   const navItems = [
     { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/agents", icon: GitBranch, label: "Agents" },
+    { href: "/flagged", icon: Shield, label: "Flagged Accounts" },
   ];
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);

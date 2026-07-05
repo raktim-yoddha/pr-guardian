@@ -180,7 +180,7 @@ async def _process_pending_prs() -> None:
             for agent in agents:
                 try:
                     # Fetch open PRs for this repo
-                    prs = await github_client.list_pull_requests(agent.repo_full_name, state="open")
+                    prs = await github_client.list_pull_requests(agent.repo_full_name, state="open", installation_id=agent.github_installation_id)
                     
                     if not prs:
                         logger.info("startup: no open PRs for %s", agent.repo_full_name)

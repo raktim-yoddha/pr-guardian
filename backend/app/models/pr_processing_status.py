@@ -22,7 +22,7 @@ class PRProcessingStatus(Base):
 
     # Current processing status
     status: Mapped[str] = mapped_column(
-        Enum("detected", "queued", "spam_check", "malicious_code_check", "hijack_proof_check", "summary_generation", "completed", "failed", name="processing_status"),
+        String(32),
         default="detected",
         nullable=False,
         index=True

@@ -87,9 +87,11 @@ Generate an improved title and description. Return JSON: {{"title": "...", "body
     # Post updated title + body back to GitHub.
     repo_full_name = state.get("repo_full_name") or ""
     pr_number = state.get("pr_number") or 0
+    agent = state.get("agent")
+    installation_id = agent.github_installation_id if agent else None
     try:
         await github_client.update_pr(
-            repo_full_name, pr_number, title=new_title, body=new_body
+            repo_full_name, pr_number, title=new_title, body=new_body, installation_id=installation_id
         )
         logger.info("summary_layer: updated PR #%s on GitHub", pr_number)
     except GithubError as exc:

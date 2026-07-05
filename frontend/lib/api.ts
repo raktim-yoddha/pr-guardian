@@ -160,6 +160,15 @@ export const api = {
   async syncAgent(id: number): Promise<Agent> {
     return request<Agent>(`/api/agents/${id}/sync`, { method: "POST" });
   },
+  async getAgentProgress(id: number): Promise<any> {
+    return request<any>(`/api/agents/${id}/progress`);
+  },
+  async getAgentIngestionLogs(id: number, limit: number = 100): Promise<any[]> {
+    return request<any[]>(`/api/agents/${id}/ingestion-logs`, { query: { limit } });
+  },
+  async cancelAgentSync(id: number): Promise<Agent> {
+    return request<Agent>(`/api/agents/${id}/cancel-sync`, { method: "POST" });
+  },
 
   // ------------------------------------------------------------- events
   async listEvents(params: {

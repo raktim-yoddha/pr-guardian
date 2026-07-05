@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ApiError, api } from "@/lib/api";
 import type { Agent, PREvent } from "@/lib/types";
 
@@ -42,24 +43,19 @@ export default function AgentDetailPage() {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [events, setEvents] = useState<PREvent[]>([]);
   const [processingStatuses, setProcessingStatuses] = useState<PRProcessingStatus[]>([]);
+  const [ingestionLogs, setIngestionLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const processingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [showLogsDialog, setShowLogsDialog] = useState(false);
+  const logsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadAgent = useCallback(async () => {
     try {
       const a = await api.getAgent(agentId);
       setAgent(a);
-      // Stop polling when ingestion settles.
-      if (a.ingestion_status === "done" || a.ingestion_status === "failed") {
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load agent");
     }
@@ -69,48 +65,42 @@ export default function AgentDetailPage() {
     try {
       const statuses = await api.listProcessingStatus({ agent_id: agentId, limit: 50 });
       setProcessingStatuses(statuses);
-      
-      // Stop polling if all PRs are completed or failed
-      const allComplete = statuses.every(
-        s => s.status === "completed" || s.status === "failed"
-      );
-      if (allComplete && statuses.length > 0) {
-        if (processingPollRef.current) {
-          clearInterval(processingPollRef.current);
-          processingPollRef.current = null;
-        }
-      }
     } catch (e) {
       console.error("Failed to load processing status:", e);
     }
   }, [agentId]);
 
+  const loadIngestionLogs = useCallback(async () => {
+    try {
+      const logs = await api.getAgentIngestionLogs(agentId, 50);
+      setIngestionLogs(logs);
+      
+      // Stop polling if ingestion is done or failed
+      if (agent && (agent.ingestion_status === "done" || agent.ingestion_status === "failed")) {
+        if (logsPollRef.current) {
+          clearInterval(logsPollRef.current);
+          logsPollRef.current = null;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load ingestion logs:", e);
+    }
+  }, [agentId, agent]);
+
   async function load() {
     try {
-      const [a, evs, statuses] = await Promise.all([
+      const [a, evs, statuses, logs] = await Promise.all([
         api.getAgent(agentId),
         api.listEvents({ agent_id: agentId, limit: 50 }),
         api.listProcessingStatus({ agent_id: agentId, limit: 50 }),
+        api.getAgentIngestionLogs(agentId, 50),
       ]);
       setAgent(a);
       setEvents(evs);
       setProcessingStatuses(statuses);
-      
-      // If ingestion is running, start polling.
-      if (
-        a.ingestion_status === "running" ||
-        a.ingestion_status === "pending"
-      ) {
-        pollRef.current = setInterval(() => void loadAgent(), 3000);
-      }
-      
-      // If there are PRs being processed, start polling for status
-      const hasProcessing = statuses.some(
-        s => s.status !== "completed" && s.status !== "failed"
-      );
-      if (hasProcessing) {
-        processingPollRef.current = setInterval(() => void loadProcessingStatus(), 2000);
-      }
+      setIngestionLogs(logs);
+      // Set syncing state based on agent status
+      setSyncing(a.ingestion_status === "running" || a.ingestion_status === "pending");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load agent");
     } finally {
@@ -120,10 +110,6 @@ export default function AgentDetailPage() {
 
   useEffect(() => {
     void load();
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (processingPollRef.current) clearInterval(processingPollRef.current);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
@@ -158,20 +144,51 @@ export default function AgentDetailPage() {
   async function handleSync() {
     if (!agent) return;
     setSyncing(true);
+    setError(null);
     try {
       const updated = await api.syncAgent(agent.id);
       setAgent(updated);
-      // Start polling for ingestion progress.
-      if (updated.ingestion_status === "running" || updated.ingestion_status === "pending") {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = setInterval(() => void loadAgent(), 3000);
-      }
+      // Reload logs after sync completes (since it's now synchronous)
+      await loadIngestionLogs();
+      await loadProcessingStatus();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to sync");
     } finally {
       setSyncing(false);
     }
   }
+
+  async function handleCancelSync() {
+    if (!agent) return;
+    setCancelling(true);
+    try {
+      const updated = await api.cancelAgentSync(agent.id);
+      setAgent(updated);
+      setSyncing(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to cancel sync");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  const handleOpenLogsDialog = () => {
+    setShowLogsDialog(true);
+    loadIngestionLogs();
+    // Start polling for logs
+    if (agent && (agent.ingestion_status === "running" || agent.ingestion_status === "pending")) {
+      if (logsPollRef.current) clearInterval(logsPollRef.current);
+      logsPollRef.current = setInterval(() => void loadIngestionLogs(), 1000);
+    }
+  };
+
+  const handleCloseLogsDialog = () => {
+    setShowLogsDialog(false);
+    if (logsPollRef.current) {
+      clearInterval(logsPollRef.current);
+      logsPollRef.current = null;
+    }
+  };
 
   if (loading) return <p className="text-muted-foreground">Loading…</p>;
   if (error && !agent) {
@@ -212,11 +229,27 @@ export default function AgentDetailPage() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={handleSync}
-            disabled={syncing || ingestionRunning}
+            onClick={handleOpenLogsDialog}
           >
-            {syncing || ingestionRunning ? "Syncing…" : "Re-sync Knowledge Base"}
+            Check Sync
           </Button>
+          {syncing ? (
+            <Button
+              variant="destructive"
+              onClick={handleCancelSync}
+              disabled={cancelling}
+            >
+              {cancelling ? "Cancelling…" : "Cancel Sync"}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={handleSync}
+              disabled={ingestionRunning}
+            >
+              {ingestionRunning ? "Syncing…" : "Re-sync Knowledge Base"}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={handleToggle}
@@ -452,6 +485,74 @@ export default function AgentDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={showLogsDialog} onOpenChange={handleCloseLogsDialog}>
+        <DialogContent className="max-w-5xl w-full">
+          <DialogHeader>
+            <DialogTitle>Ingestion Progress</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+            {ingestionLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No ingestion logs yet.
+              </p>
+            ) : (
+              <>
+                {/* Show current file progress prominently */}
+                {(() => {
+                  const fetchLog = ingestionLogs.find(l => l.step === "fetch_file");
+                  if (fetchLog) {
+                    return (
+                      <div className="flex items-center gap-3 rounded-lg border p-4 bg-muted">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{fetchLog.message}</p>
+                          {fetchLog.current !== null && fetchLog.total !== null && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {fetchLog.current}/{fetchLog.total} files
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                
+                {/* Show other logs below */}
+                {ingestionLogs.filter(l => l.step !== "fetch_file").slice().reverse().map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex items-start gap-3 rounded-lg border p-3 text-sm"
+                  >
+                    <div className="mt-0.5">
+                      {log.status === "success" && (
+                        <div className="h-2 w-2 rounded-full bg-green-500" />
+                      )}
+                      {log.status === "error" && (
+                        <div className="h-2 w-2 rounded-full bg-red-500" />
+                      )}
+                      {log.status === "warning" && (
+                        <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                      )}
+                      {log.status === "info" && (
+                        <div className="h-2 w-2 rounded-full bg-blue-500" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium capitalize text-muted-foreground">
+                          {log.step.replace(/_/g, " ")}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-muted-foreground break-words">{log.message}</p>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -12,21 +12,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '0005_pr_processing_status'
-down_revision: Union[str, None] = '0004_github_connections'
+revision: str = '0005'
+down_revision: Union[str, None] = '0004'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create processing_status enum type
-    processing_status_enum = postgresql.ENUM(
-        'detected', 'queued', 'spam_check', 'malicious_code_check',
-        'hijack_proof_check', 'summary_generation', 'completed', 'failed',
-        name='processing_status'
-    )
-    processing_status_enum.create(op.get_bind())
-
     # Create pr_processing_status table
     op.create_table(
         'pr_processing_status',
@@ -36,7 +28,7 @@ def upgrade() -> None:
         sa.Column('pr_url', sa.String(length=500), nullable=False),
         sa.Column('pr_title', sa.String(length=500), nullable=False),
         sa.Column('author_github', sa.String(length=255), nullable=False),
-        sa.Column('status', processing_status_enum, nullable=False),
+        sa.Column('status', sa.String(length=32), nullable=False, server_default='detected'),
         sa.Column('layer_results', postgresql.JSON(), nullable=True),
         sa.Column('final_decision', sa.String(length=16), nullable=True),
         sa.Column('decline_reason', sa.Text(), nullable=True),

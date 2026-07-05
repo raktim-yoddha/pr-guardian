@@ -44,8 +44,10 @@ async def approve_pr(state: PRState) -> dict:
 
     # Post approval comment (best-effort).
     repo = state.get("repo_full_name") or ""
+    agent = state.get("agent")
+    installation_id = agent.github_installation_id if agent else None
     try:
-        await github_client.post_pr_comment(repo, pr_number, APPROVE_COMMENT_BODY)
+        await github_client.post_pr_comment(repo, pr_number, APPROVE_COMMENT_BODY, installation_id=installation_id)
     except GithubError as exc:
         logger.warning("approve_pr: failed to post comment (%s)", exc)
 
