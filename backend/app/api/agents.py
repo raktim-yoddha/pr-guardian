@@ -23,34 +23,37 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 async def _detect_prs_for_agent(
     agent_id: int,
     db: DBSession,
-) -> int:
-    """Internal function to detect PRs for an agent."""
+) -> list[dict]:
+    """Detect open PRs needing review; create their queued status rows.
+
+    Returns the kwargs for each newly-queued PR so the caller can dispatch it to
+    ``process_pr`` (webhook-less environments have no worker to pick them up).
+    """
     from datetime import datetime, timezone
     from app.models.pr_event import PREvent
     from app.models.pr_processing_status import PRProcessingStatus
     from app.services.github import github_client
-    
+
     agent = await db.get(Agent, agent_id)
     if not agent:
-        return 0
-    
+        return []
+
+    queued: list[dict] = []
     try:
         prs = await github_client.list_pull_requests(agent.repo_full_name, state="open", installation_id=agent.github_installation_id)
-        
         if not prs:
-            return 0
-        
-        detected_count = 0
+            return []
+
         for pr in prs:
             pr_number = pr.get("number")
             pr_url = pr.get("html_url")
             author = pr.get("user", {}).get("login")
             pr_title = pr.get("title", "")
-            
+            pr_body = pr.get("body", "") or ""
+
             if not pr_number or not pr_url:
                 continue
-            
-            # Check if already processed
+
             existing_event = await db.execute(
                 select(PREvent).where(
                     PREvent.agent_id == agent.id,
@@ -59,33 +62,40 @@ async def _detect_prs_for_agent(
             )
             if existing_event.scalar_one_or_none():
                 continue
-            
-            # Create processing status entry if not exists
+
             existing_status = await db.scalar(
                 select(PRProcessingStatus).where(
                     PRProcessingStatus.agent_id == agent.id,
                     PRProcessingStatus.pr_number == pr_number
                 )
             )
-            if not existing_status:
-                processing_status = PRProcessingStatus(
-                    agent_id=agent.id,
-                    pr_number=pr_number,
-                    pr_url=pr_url,
-                    pr_title=pr_title,
-                    author_github=author or "unknown",
-                    status="queued",
-                    detected_at=datetime.now(timezone.utc),
-                    queued_at=datetime.now(timezone.utc)
-                )
-                db.add(processing_status)
-                detected_count += 1
-        
+            if existing_status:
+                continue
+
+            db.add(PRProcessingStatus(
+                agent_id=agent.id,
+                pr_number=pr_number,
+                pr_url=pr_url,
+                pr_title=pr_title,
+                author_github=author or "unknown",
+                status="queued",
+                detected_at=datetime.now(timezone.utc),
+                queued_at=datetime.now(timezone.utc),
+            ))
+            queued.append({
+                "repo_full_name": agent.repo_full_name,
+                "pr_number": pr_number,
+                "pr_url": pr_url,
+                "author": author or "unknown",
+                "pr_title": pr_title,
+                "pr_body": pr_body,
+            })
+
         await db.commit()
-        return detected_count
+        return queued
     except Exception as exc:
         logger.exception(f"PR detection failed for agent {agent_id}: {exc}")
-        return 0
+        return []
 
 
 @router.get("", response_model=list[AgentRead])
@@ -133,24 +143,28 @@ async def create_agent(
 
 
 async def _run_ingestion_and_detection(agent_id: int) -> None:
-    """Background task to run ingestion and PR detection for an agent."""
+    """Background task: ingest the repo, then detect + process open PRs."""
     from app.services.ingestion import ingest_agent
-    
+    from app.tasks import process_pr
+
+    queued: list[dict] = []
     async with AsyncSessionLocal() as db:
         agent = await db.get(Agent, agent_id)
         if not agent:
             return
-        
         try:
             agent.ingestion_status = "running"
             await db.commit()
             await ingest_agent(agent_id)
-            # Trigger PR detection after successful ingestion
-            await _detect_prs_for_agent(agent_id, db)
+            queued = await _detect_prs_for_agent(agent_id, db)
         except Exception as exc:
             logger.exception(f"Initial ingestion failed for agent {agent_id}: {exc}")
             agent.ingestion_status = "failed"
             await db.commit()
+
+    # Process detected PRs sequentially (already off the request path).
+    for pr in queued:
+        await process_pr(**pr)
 
 
 async def _get_owned_or_404(db: DBSession, agent_id: int, user_id: int) -> Agent:
@@ -257,21 +271,19 @@ async def sync_agent(
     agent_id: int,
     current_user: CurrentUser,
     db: DBSession,
+    background_tasks: BackgroundTasks,
 ) -> Agent:
     """Manually trigger sync (ingestion + PR detection) for an agent."""
     agent = await _get_owned_or_404(db, agent_id, current_user.id)
-    
-    # Reset ingestion status to pending before triggering sync
     agent.ingestion_status = "running"
     await db.commit()
     await db.refresh(agent)
-    
-    # Run ingestion synchronously (bypass Celery for reliability)
+
     from app.services.ingestion import ingest_agent
+    from app.tasks import process_pr
     try:
         await ingest_agent(agent.id)
-        # Trigger PR detection after successful ingestion
-        await _detect_prs_for_agent(agent.id, db)
+        queued = await _detect_prs_for_agent(agent.id, db)
     except Exception as exc:
         logger.exception(f"Sync failed for agent {agent_id}: {exc}")
         agent.ingestion_status = "failed"
@@ -280,7 +292,9 @@ async def sync_agent(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ingestion failed: {str(exc)}"
         )
-    
+
+    for pr in queued:
+        background_tasks.add_task(process_pr, **pr)
     await db.refresh(agent)
     return agent
 
@@ -312,72 +326,20 @@ async def detect_prs(
     agent_id: int,
     current_user: CurrentUser,
     db: DBSession,
+    background_tasks: BackgroundTasks,
 ) -> dict:
-    """Manually trigger PR detection for an agent without re-ingesting."""
-    agent = await _get_owned_or_404(db, agent_id, current_user.id)
-    
-    # Run PR detection synchronously (bypass Celery for reliability)
-    from datetime import datetime, timezone
-    from app.models.pr_event import PREvent
-    from app.models.pr_processing_status import PRProcessingStatus
-    from app.services.github import github_client
-    
-    try:
-        prs = await github_client.list_pull_requests(agent.repo_full_name, state="open", installation_id=agent.github_installation_id)
-        
-        if not prs:
-            return {"status": "success", "message": "No open PRs found", "detected_count": 0}
-        
-        detected_count = 0
-        for pr in prs:
-            pr_number = pr.get("number")
-            pr_url = pr.get("html_url")
-            author = pr.get("user", {}).get("login")
-            pr_title = pr.get("title", "")
-            pr_body = pr.get("body", "")
-            
-            if not pr_number or not pr_url:
-                continue
-            
-            # Check if already processed
-            existing_event = await db.execute(
-                select(PREvent).where(
-                    PREvent.agent_id == agent.id,
-                    PREvent.pr_number == pr_number
-                )
-            )
-            if existing_event.scalar_one_or_none():
-                continue
-            
-            # Create processing status entry if not exists
-            existing_status = await db.scalar(
-                select(PRProcessingStatus).where(
-                    PRProcessingStatus.agent_id == agent.id,
-                    PRProcessingStatus.pr_number == pr_number
-                )
-            )
-            if not existing_status:
-                processing_status = PRProcessingStatus(
-                    agent_id=agent.id,
-                    pr_number=pr_number,
-                    pr_url=pr_url,
-                    pr_title=pr_title,
-                    author_github=author or "unknown",
-                    status="queued",
-                    detected_at=datetime.now(timezone.utc),
-                    queued_at=datetime.now(timezone.utc)
-                )
-                db.add(processing_status)
-                detected_count += 1
-        
-        await db.commit()
-        return {"status": "success", "message": f"Detected {detected_count} new PRs", "detected_count": detected_count}
-    except Exception as exc:
-        logger.exception(f"PR detection failed for agent {agent_id}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PR detection failed: {str(exc)}"
-        )
+    """Manually trigger PR detection (and processing) without re-ingesting."""
+    await _get_owned_or_404(db, agent_id, current_user.id)
+    from app.tasks import process_pr
+
+    queued = await _detect_prs_for_agent(agent_id, db)
+    for pr in queued:
+        background_tasks.add_task(process_pr, **pr)
+    return {
+        "status": "success",
+        "message": f"Detected {len(queued)} new PRs",
+        "detected_count": len(queued),
+    }
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)

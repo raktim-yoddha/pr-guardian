@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-LlmProviderLiteral = Literal["ollama", "gemini"]
+LlmProviderLiteral = Literal["groq", "gemini", "ollama"]
 VectorDbLiteral = Literal["pgvector", "chromadb"]
 
 
@@ -15,7 +15,7 @@ class AgentCreate(BaseModel):
         max_length=255,
         description="GitHub repo in owner/name form, e.g. 'octocat/Hello-World'",
     )
-    llm_provider: LlmProviderLiteral = "ollama"
+    llm_provider: LlmProviderLiteral = "groq"
     vector_db_type: VectorDbLiteral = "pgvector"
     github_installation_id: int | None = None
 

@@ -26,3 +26,9 @@ class PRState(TypedDict, total=False):
     summary_body: str | None
     author_flag_count: int        # Number of flags on the author's account
     author_is_banned: bool        # Whether the author is banned
+
+    # Resolved LLM config (from the agent owner's BYO settings or env default).
+    llm_provider: str
+    llm_model: str
+    llm_api_key: str | None
+    llm_base_url: str | None

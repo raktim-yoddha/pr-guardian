@@ -6,12 +6,13 @@
 #
 # Services:
 #   - postgres  : PostgreSQL 16 + pgvector extension
-#   - redis     : Redis for Celery task queue
-#   - backend   : FastAPI (lightweight, only handles HTTP requests)
-#   - worker    : Celery worker (handles heavy background tasks)
+#   - backend   : FastAPI (serves the API, runs PR review in-process via
+#                 BackgroundTasks — no Celery/Redis/worker needed)
 #   - frontend  : Next.js standalone
 #   - nginx     : reverse proxy (port 80)
-#   - ollama    : local LLM (opt-in, enable with: docker compose --profile ollama up -d)
+#
+# Embeddings run locally on CPU (fastembed) inside the backend container.
+# LLM defaults to Groq (set GROQ_API_KEY); users can bring their own key/provider.
 
 services:
   # ── Database ────────────────────────────────────────────────────────────
@@ -33,15 +34,7 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # ── Redis for Celery ────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: prguardian-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    restart: unless-stopped
-
-  # ── Backend (FastAPI only - lightweight) ────────────────────────────────
+  # ── Backend (FastAPI + in-process background PR review) ─────────────────
   backend:
     build:
       context: ./backend
@@ -50,38 +43,13 @@ services:
     env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prguardian}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-  # ── Celery Worker (handles heavy background tasks) ─────────────────────
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: prguardian-worker
-    env_file: ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prguardian}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      backend:
-        condition: service_started
-    restart: unless-stopped
-    command: python start_worker.py
 
   # ── Frontend ───────────────────────────────────────────────────────────
   frontend:
@@ -108,17 +76,5 @@ services:
       - frontend
     restart: unless-stopped
 
-  # ── Ollama (opt-in) ─────────────────────────────────────────────────────
-  ollama:
-    image: ollama/ollama:latest
-    container_name: prguardian-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollamadata:/root/.ollama
-    profiles: ["ollama"]
-    restart: unless-stopped
-
 volumes:
   pgdata:
-  ollamadata:

@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import type { DashboardStats, Agent, FlaggedAccount } from "@/lib/types";
+import type { DashboardStats, Agent, FlaggedAccount, PREvent } from "@/lib/types";
 import { Shield, CheckCircle, XCircle, Activity, AlertTriangle, GitBranch, ArrowRight, Clock } from "lucide-react";
 
 export default function DashboardPage() {
@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [flagged, setFlagged] = useState<FlaggedAccount[]>([]);
   const [processingStatus, setProcessingStatus] = useState<any[]>([]);
+  const [events, setEvents] = useState<PREvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +32,14 @@ export default function DashboardPage() {
       api.listAgents(),
       api.listFlaggedAccounts(),
       api.listProcessingStatus({ limit: 10 }),
+      api.listEvents({ limit: 10 }),
     ])
-      .then(([s, a, f, ps]) => {
+      .then(([s, a, f, ps, ev]) => {
         setStats(s);
         setAgents(a.slice(0, 5)); // Show latest 5 agents
         setFlagged(f.slice(0, 5)); // Show latest 5 flagged accounts
         setProcessingStatus(ps);
+        setEvents(ev);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
@@ -46,13 +49,19 @@ export default function DashboardPage() {
     loadStats();
   }, []);
 
-  // Auto-refresh processing status every 3 seconds (only processing status, not full reload)
+  // Auto-refresh processing status and events every 3 seconds
   useEffect(() => {
     if (!loading) {
       const interval = setInterval(() => {
-        api.listProcessingStatus({ limit: 10 })
-          .then(setProcessingStatus)
-          .catch((e) => console.error("Failed to refresh processing status:", e));
+        Promise.all([
+          api.listProcessingStatus({ limit: 10 }),
+          api.listEvents({ limit: 10 }),
+        ])
+          .then(([ps, ev]) => {
+            setProcessingStatus(ps);
+            setEvents(ev);
+          })
+          .catch((e) => console.error("Failed to refresh:", e));
       }, 3000);
       return () => clearInterval(interval);
     }
@@ -125,79 +134,168 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!loading && processingStatus.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Recent PR Processing
-              </h2>
-              <p className="text-muted-foreground">
-                Latest PRs being processed through the pipeline
+      {!loading && (processingStatus.length > 0 || events.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Recent PR Events & Processing
+            </CardTitle>
+            <CardDescription>
+              All PRs across your agents with real-time processing progress.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {processingStatus.length === 0 && events.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No PRs detected yet.
               </p>
-            </div>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {processingStatus.slice(0, 6).map((ps) => {
-              const progress = getProgressPercentage(ps.status);
-              const isCompleted = ps.status === "completed";
-              
-              return (
-                <Link
-                  key={ps.id}
-                  href={`/agents/${ps.agent_id}`}
-                  className="block"
-                >
-                  <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant="outline" className="text-xs">#{ps.pr_number}</Badge>
-                            <Badge 
-                              variant={isCompleted ? "success" : ps.status === "failed" ? "destructive" : "secondary"}
-                              className="text-xs"
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="pb-2 pr-4 font-medium">Date</th>
+                      <th className="pb-2 pr-4 font-medium">PR #</th>
+                      <th className="pb-2 pr-4 font-medium">Title</th>
+                      <th className="pb-2 pr-4 font-medium">Author</th>
+                      <th className="pb-2 pr-4 font-medium">Decision</th>
+                      <th className="pb-2 pr-4 font-medium">Progress</th>
+                      <th className="pb-2 pr-4 font-medium">Layer</th>
+                      <th className="pb-2 font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Show processing statuses first */}
+                    {processingStatus.slice(0, 10).map((status) => {
+                      const progress = getProgressPercentage(status.status);
+                      const isCompleted = status.status === "completed";
+                      
+                      return (
+                        <tr 
+                          key={status.id} 
+                          className="border-b last:border-0 hover:bg-muted/50 cursor-pointer"
+                          onClick={() => window.location.href = `/dashboard/pr/${status.agent_id}/${status.pr_number}`}
+                        >
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {status.detected_at ? new Date(status.detected_at).toLocaleString() : "—"}
+                          </td>
+                          <td className="py-2 pr-4">
+                            <span className="font-medium text-primary hover:underline">
+                              #{status.pr_number}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 max-w-[200px] truncate">
+                            {status.pr_title}
+                          </td>
+                          <td className="py-2 pr-4">{status.author_github}</td>
+                          <td className="py-2 pr-4">
+                            {isCompleted ? (
+                              <Badge variant={status.final_decision === "approved" ? "success" : "destructive"}>
+                                {status.final_decision}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">
+                                {getStatusLabel(status.status)}
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="py-2 pr-4 min-w-[150px]">
+                            <div className="flex items-center gap-2">
+                              <div className="h-2 w-24 bg-secondary rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full transition-all duration-500 ease-out ${isCompleted ? 'bg-green-500' : 'bg-primary'}`}
+                                  style={{ width: `${progress}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-muted-foreground w-8">
+                                {progress}%
+                              </span>
+                              {isCompleted && (
+                                <Badge variant="success" className="text-xs">✓</Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2 pr-4">
+                            {status.final_decision ? (status.final_decision === "approved" ? "—" : "pipeline") : "—"}
+                          </td>
+                          <td className="py-2 max-w-[200px]">
+                            {status.error_message ? (
+                              <Badge variant="destructive" className="text-xs" title={status.error_message}>
+                                Error
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground truncate block">
+                                {status.decline_reason || "—"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    
+                    {/* Show completed events that don't have active processing status */}
+                    {events
+                      .slice(0, 10)
+                      .filter(ev => !processingStatus.find(ps => ps.pr_number === ev.pr_number))
+                      .map((ev) => (
+                        <tr 
+                          key={ev.id} 
+                          className="border-b last:border-0 hover:bg-muted/50 cursor-pointer"
+                          onClick={() => window.location.href = `/dashboard/pr/${ev.agent_id}/${ev.pr_number}`}
+                        >
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {new Date(ev.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-2 pr-4">
+                            <span className="font-medium text-primary hover:underline">
+                              #{ev.pr_number}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 max-w-[200px] truncate">
+                            —
+                          </td>
+                          <td className="py-2 pr-4">{ev.author_github}</td>
+                          <td className="py-2 pr-4">
+                            <Badge
+                              variant={
+                                ev.decision === "approved"
+                                  ? "success"
+                                  : "destructive"
+                              }
                             >
-                              {getStatusLabel(ps.status)}
+                              {ev.decision}
                             </Badge>
-                          </div>
-                          <CardTitle className="text-sm truncate">{ps.pr_title}</CardTitle>
-                          <CardDescription className="text-xs">
-                            by {ps.author_github}
-                          </CardDescription>
-                        </div>
-                        {isCompleted && (
-                          <Badge variant="success" className="text-xs shrink-0">✓</Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="space-y-2">
-                        <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-500 ease-out ${isCompleted ? 'bg-green-500' : 'bg-primary'}`}
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>{progress}% complete</span>
-                          <span>{ps.detected_at ? new Date(ps.detected_at).toLocaleDateString() : ""}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              );
-            })}
-          </div>
-          <Button asChild variant="outline" className="w-full mt-4">
-            <Link href="/dashboard/events" className="flex items-center gap-2">
-              View all PRs
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
+                          </td>
+                          <td className="py-2 pr-4 min-w-[150px]">
+                            <div className="flex items-center gap-2">
+                              <div className="h-2 w-24 bg-green-500 rounded-full overflow-hidden">
+                                <div className="h-full bg-green-500" style={{ width: "100%" }} />
+                              </div>
+                              <span className="text-xs text-muted-foreground w-8">100%</span>
+                              <Badge variant="success" className="text-xs">✓</Badge>
+                            </div>
+                          </td>
+                          <td className="py-2 pr-4">
+                            {ev.layer_caught ?? "—"}
+                          </td>
+                          <td className="py-2 text-muted-foreground max-w-[200px] truncate">
+                            {ev.reason ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <Button asChild variant="outline" className="w-full mt-4">
+              <Link href="/dashboard/events" className="flex items-center gap-2">
+                View all PRs
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {!loading && agents.length > 0 && (

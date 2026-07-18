@@ -1,415 +1,215 @@
 # PR Guardian
 
-> Your AI-powered Pull Request bouncer — catches spam, malicious code, and injection attacks before they reach human reviewers.
+> An AI guardian that screens every GitHub pull request before a human ever sees it.
 
-PR Guardian is a RAG-powered GitHub Pull Request management system. Users connect their GitHub accounts via OAuth (GitHub or Google), then create agents tied to specific repositories. Each agent ingests the full repo and its issues as a knowledge base using hybrid BM25 + vector search, then autonomously reviews incoming PRs through a multi-layer agentic pipeline — declining dangerous PRs (and closing them) and polishing clean ones before they ever reach a human reviewer.
+PR Guardian points an autonomous agent at a GitHub repository. Each agent ingests the repo's code and issues into a RAG knowledge base, then runs every incoming PR through a four-layer security pipeline — blocking prompt injection, malicious code, and spam, and rewriting the good ones into clean, reviewer-ready descriptions. Built for maintainers and teams who want a reliable first-pass reviewer that runs for free on CPU.
 
-**Key Features:**
-- **Multi-layer PR Review Pipeline**: Prompt injection detection (12 specific categories), spam detection, malicious code scanning, and PR summarization
-- **Enterprise-Grade Security**: Comprehensive prompt injection detection based on MITRE ATLAS and OWASP Top 10 for LLM Applications
-- **Automatic PR Polling**: 5-second polling detects new PRs without relying solely on webhooks
-- **Automatic Recovery**: Self-healing system detects and retries stuck PRs at any layer
-- **RAG-powered Context**: Hybrid BM25 + vector search retrieves relevant code and issues for informed decisions
-- **Account Flagging System**: Tracks problematic contributors with automatic bans and manual override capability
-- **Cautious Mode for Flagged Accounts**: Lowered thresholds for users with previous flags
-- **Background Processing**: Redis+Celery for reliable async PR processing with isolated connection pools
-- **Modern Dashboard**: Professional UI with real-time stats, event logs, and account management
-- **OAuth Authentication**: Secure GitHub and Google OAuth integration
+- Four-layer review pipeline: prompt injection → spam → malicious code → summarize & approve
+- Repo + issue RAG with local CPU embeddings (fastembed) and hybrid BM25 + vector retrieval
+- Bring-your-own LLM: Groq, Gemini, or local Ollama — with per-user, encrypted API keys
+- Auto-flag and ban abusive GitHub accounts across repeated violations
+- Webhook-driven, in-process background processing (no Celery/Redis/worker)
+- Next.js dashboard with live PR progress, decisions, and flagged accounts (dark + light)
 
 ## 📑 Table of Contents
 
-- [How to Use](#-how-to-use)
-- [How it Works](#-how-it-works)
-- [Tech Stack](#-tech-stack)
-- [Setup & Installation](#-setup--installation)
-- [API Endpoints](#-api-endpoints)
-- [Project Structure](#-project-structure)
-- [Exports](#-exports)
+- [🚀 How to Use](#-how-to-use)
+- [🧠 Implementation Overview](#-implementation-overview)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [⚙️ Setup & Installation](#️-setup--installation)
+- [🔌 API Endpoints](#-api-endpoints)
+- [📁 Project Structure](#-project-structure)
 
 ## 🚀 How to Use
 
-**1. Sign Up & Connect GitHub**
-Register an account, then connect your GitHub or Google account via OAuth from the login page. This grants PR Guardian permissions to access your repositories and pull requests.
+- **Sign up / sign in** — email + password, or GitHub / Google OAuth.
+- **Connect GitHub** — link an account from the sidebar; PR Guardian lists the repos it can access.
+- **Create an agent** — pick a connected account, choose a repo, and select an LLM provider. The agent immediately ingests the repo's source and issues into its knowledge base.
+- **Set your provider key (optional)** — in **Settings**, choose Groq / Gemini / Ollama and paste your own API key (stored encrypted). No key → the server default provider is used.
+- **Let it review** — open PRs are picked up via webhook (and a startup scan), run through the pipeline, and either declined + flagged or rewritten + approved on GitHub.
+- **Watch the dashboard** — live per-PR progress, decisions, layer results, and a flagged-accounts view with unban controls.
 
-**2. Create an Agent**
-Select a connected GitHub account, choose a repository from your accessible repos, then configure the LLM provider (Ollama or Gemini). The system immediately begins ingesting the repo's source code and all issues into its knowledge base using the bge-m3 embedding model.
+## 🧠 Implementation Overview
 
-**3. Pipeline Reviews PRs Automatically**
-Each incoming PR passes through four sequential detection layers — prompt injection, spam, malicious code, and summary. The system automatically polls GitHub every 5 seconds for new PRs, so you don't need to rely solely on webhooks. If any layer flags the PR, it's automatically declined with a comment explaining the reason, and the author's GitHub account gets a flag. Clean PRs get their title and description rewritten in conventional-commits format. The system automatically detects and recovers stuck PRs at any layer.
-
-**4. Monitor from the Dashboard**
-The modern dashboard shows aggregate stats (total PRs, approval rate, flagged accounts), a per-agent breakdown, an event log with every decision, and a flagged-accounts panel showing users who've been caught. You can manually remove flags if the AI was wrong.
-
-**5. Manage Flagged Accounts**
-View all flagged GitHub accounts with their flag counts and status. If the AI incorrectly flagged an account, you can manually remove the flags to reset their status. Accounts with 3+ flags are auto-banned and will have their PRs auto-declined.
-
-**6. Manage Agents**
-Pause, resume, or delete agents. Edit LLM provider settings. Trigger manual knowledge-base re-syncs from the agent settings page.
-
-## 🧠 How it Works
-
-### System Architecture
+Review pipeline — a strict sequential gate ([`backend/app/pipeline/graph.py`](backend/app/pipeline/graph.py)). A PR that fails any layer never reaches the next; it routes straight to flag + decline.
 
 ```mermaid
-flowchart TD
-    A[GitHub Webhook / Polling] --> B[FastAPI Backend]
-    B --> C{Valid HMAC-SHA256?}
-    C -->|No| D[Reject 401]
-    C -->|Yes| E{Rate Limited?}
-    E -->|Yes| F[Auto-Flag Account]
-    E -->|No| G{Payload > 500KB?}
-    G -->|Yes| H[Ignore]
-    G -->|No| I[Run Pipeline]
-    I --> J[Layer 1: Prompt Injection]
-    J -->|Declined| K[Flag Account]
-    K --> L[Decline PR]
-    J -->|Clean| M[Layer 2: Spam Detection]
-    M -->|Declined| K
-    M -->|Clean| N[Layer 3: Malicious Code]
-    N -->|Declined| K
-    N -->|Clean| O[Layer 4: Summary]
-    O --> P[Rewrite Title/Body]
-    P --> Q[Post to GitHub]
-    Q --> R[Approve PR]
-    S[Auto-Recovery] --> I
-    S -.->|Stuck PRs| I
+flowchart LR
+    W[Webhook / startup scan] --> PI[Prompt injection]
+    PI -->|pass| SP[Spam & quality]
+    SP -->|pass| MC[Malicious code]
+    MC -->|pass| SU[Summarize] --> AP[Approve + rewrite PR]
+    PI -->|fail| FL[Flag account]
+    SP -->|fail| FL
+    MC -->|fail| FL
+    FL --> DC[Decline PR]
 ```
 
-### RAG Ingestion Flow
+RAG knowledge base — ingestion embeds on CPU; retrieval is hybrid ([`backend/app/services/ingestion.py`](backend/app/services/ingestion.py), [`backend/app/services/rag.py`](backend/app/services/rag.py)).
 
 ```mermaid
-flowchart TD
-    A[Agent Created] --> B[Fetch Repo File Tree]
-    B --> C[Download Text Blobs]
-    C --> D[Fetch Issues + Comments]
-    D --> E[Chunk Content<br/>512 tokens, 50 overlap]
-    E --> F[Embed Chunks<br/>via Ollama/Gemini]
-    F --> G[Store in pgvector<br/>KnowledgeChunk table]
-    G --> H[Agent Status: done]
+flowchart LR
+    R[Repo files + issues] --> C[Chunk] --> E[Embed on CPU<br/>fastembed bge-small] --> V[(pgvector)]
+    Q[PR query] --> H[Hybrid BM25 + vector] 
+    V --> H --> CTX[Context for LLM]
 ```
 
-### Key Algorithms & Logic
+- **Provider + key resolution** — chat routes to Groq / Gemini / Ollama; the agent owner's encrypted key wins, else the env default. Resolved once per run and carried on pipeline state. See [`backend/app/services/llm.py`](backend/app/services/llm.py).
+- **Local embeddings, graceful fallback** — `fastembed` runs an ONNX model on CPU (no key, no GPU). If it can't load, retrieval degrades to BM25-only. See [`backend/app/services/embeddings.py`](backend/app/services/embeddings.py).
+- **Detection layers** — regex/static fast-paths plus an LLM judge with robust JSON parsing; dual-use code patterns are sent to the model instead of auto-declined. See [`backend/app/pipeline/nodes/`](backend/app/pipeline/nodes/).
+- **Background processing** — PRs run in-process via FastAPI `BackgroundTasks`; a startup scan self-heals PRs missed during downtime. See [`backend/app/tasks.py`](backend/app/tasks.py).
+- **Encrypted secrets** — user API keys are Fernet-encrypted at rest, keyed off `SECRET_KEY`. See [`backend/app/core/security.py`](backend/app/core/security.py).
 
-**Prompt Injection Detection (Layer 1 - OWASP LLM01):**
-- Detects 12 specific attack categories across 3 groups:
-  - Direct Injection: Instruction Override, Persona Jailbreak, Obfuscated Payload, System-Prompt Extraction
-  - Indirect Injection: Web-Page Injection, Search-Result Injection, Email/Document Injection, Business-Record Injection
-  - Agentic Attacks: Tool-Call Hijacking, Connector-Based Exfiltration, Cross-Step Contamination, Excessive-Agency Abuse
-- Regex pattern library with 20+ patterns based on MITRE ATLAS and OWASP Top 10
-- Decode-and-scan: base64 and URL-decoded strings are re-scanned
-- LLM analysis with injection-resistant system prompt — all untrusted content wrapped in XML delimiters
-- Displays specific category when detected (e.g., `[Prompt Injection] Instruction Override`)
-- Any detection → immediate decline + flag
+## 🛠️ Tech Stack
 
-**Spam Detection (Layer 2):**
-- Heuristic pre-checks: empty body with no linked issue, whitespace-only changes, bot-like patterns
-- Hybrid RAG retrieval (BM25 + vector search) using PR title + diff as query
-- LLM scoring 0.0–1.0 with repository context; threshold > 0.75 → decline
-- Less strict: small meaningful diffs are allowed, LLM decides significance
-- Either heuristic OR LLM triggers a decline
+| Category | Technology | Purpose |
+| --- | --- | --- |
+| Backend framework | FastAPI + Uvicorn | Async HTTP API + in-process background tasks |
+| Pipeline | LangGraph | Stateful multi-layer PR review graph |
+| Database | PostgreSQL 16 + pgvector | Relational data + vector similarity search |
+| ORM / migrations | SQLAlchemy (async) + asyncpg + Alembic | Data access and schema migrations |
+| Embeddings | fastembed (`BAAI/bge-small-en-v1.5`, 384-dim) | Local CPU RAG embeddings, no external service |
+| LLM | Groq / Google Gemini / Ollama | Injection detection, spam scoring, PR summarization |
+| Retrieval | Hybrid BM25 + pgvector cosine | Repo/issue context for the pipeline |
+| Auth | JWT (python-jose) + bcrypt, GitHub/Google OAuth | Accounts and sessions |
+| Secrets | cryptography (Fernet) | Encrypt user-supplied API keys at rest |
+| Frontend | Next.js 14 + React 18 + TypeScript | Dashboard SPA (App Router) |
+| UI | Tailwind CSS + shadcn/ui (Radix) + lucide-react | Components, theming (dark/light) |
+| Data fetching | SWR | Client-side data fetching + caching |
+| Deployment | Docker Compose + Nginx | Full-stack local/prod deployment |
 
-**Malicious Code Detection (Layer 3):**
-- Static regex scan: `eval()`, `exec()`, `subprocess`, `os.system`, `base64.b64decode`, hardcoded IPs, secret exfiltration, reverse shells, keyloggers, pickle deserialization, ctypes shellcode
-- High-risk hunks sent to LLM for deeper analysis
-- Either static scan OR LLM detection → decline
-
-**Summary Layer (Layer 4):**
-- Hybrid RAG retrieves top-8 chunks from issues and code
-- LLM generates conventional-commits title and structured description
-- Updated title and body posted back to GitHub PR via API
-- Full generated body is stored and displayed in the dashboard
-
-**Account Flagging:**
-- Every declined PR increments `flag_count` on `GithubAccount` model
-- At `flag_count >= 3`, account is auto-banned
-- Users can manually remove flags via dashboard
-- Flagged accounts have lowered spam detection thresholds (0.1 reduction per flag, minimum 0.3)
-- Banned accounts are auto-declined without running full pipeline
-
-**System Reliability:**
-- All external API calls wrapped with exponential backoff retry (3 attempts)
-- Webhook rejects payloads exceeding 500KB
-- Per-account rate limit: >10 PRs/hour → auto-flag
-- Prometheus-style metrics at `/metrics`
-- Automatic PR Polling: Celery Beat polls GitHub every 5 seconds
-- Automatic Recovery: Detects and retries stuck PRs at any layer with 3-retry limit
-- Isolated worker DB connection pools (pool_size=2, max_overflow=5) to prevent connection exhaustion
-
-## 🛠 Tech Stack
-
-| Layer | Technology | Purpose |
-|---|---|---|
-| Frontend | Next.js 14 (App Router) + Shadcn UI + Tailwind | Modern dashboard, agent management, event log |
-| Backend | FastAPI (Python 3.11+) + SQLAlchemy 2.x async | REST API, pipeline orchestration, OAuth |
-| Database | PostgreSQL 16 + pgvector | Primary store + vector embeddings (1024-dim) |
-| Background Tasks | Celery + Redis | Async PR processing queue |
-| Orchestration | LangGraph | Multi-layer PR review pipeline with conditional routing |
-| LLM | Ollama (local) or Gemini Flash | Code analysis, spam scoring, PR summarization |
-| Auth | JWT (python-jose) + bcrypt + GitHub OAuth + Google OAuth | User authentication + GitHub/Google account connection |
-| Embeddings | bge-m3 (Ollama) | RAG knowledge base chunk embeddings (1024-dim) |
-| Search | Hybrid BM25 + Vector Search | Improved retrieval accuracy for RAG |
-| Deployment | Docker + Nginx | Multi-container production deployment |
-
-## 📦 Setup & Installation
+## ⚙️ Setup & Installation
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js 20+
-- Redis (for Celery background tasks)
-- Docker & Docker Compose (for database or full deployment)
-- Ollama (optional, for local LLM) or a Gemini API key
+- PostgreSQL 16 with the `pgvector` extension (or Docker, which provides it)
+- A Groq API key (free — [console.groq.com/keys](https://console.groq.com/keys)); Gemini key or local Ollama optional
 
-### Option A: Full Docker Deployment
+### Environment
+
+The root `.env.example` documents every variable. Copy it to `backend/.env`:
 
 ```bash
-git clone <repo-url> pr-guardian
-cd pr-guardian
 cp .env.example backend/.env
-# Edit backend/.env with your real values
-docker compose up -d
 ```
 
-For local LLM support:
+Then set at minimum:
 
-```bash
-docker compose --profile ollama up -d
-docker exec prguardian-ollama ollama pull llama3
-docker exec prguardian-ollama ollama pull bge-m3
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/prguardian
+SECRET_KEY=<long-random-string>
+LLM_PROVIDER=groq
+GROQ_API_KEY=<your-groq-key>
+EMBED_MODEL=BAAI/bge-small-en-v1.5
+EMBEDDING_DIM=384
 ```
 
-The app is available at `http://localhost` (nginx proxies port 80).
-
-### Option B: Local Development
-
-**Database & Redis:**
-
-```bash
-docker compose up -d postgres redis
-```
-
-**Backend (FastAPI - lightweight):**
+### Backend
 
 ```bash
 cd backend
 python -m venv .venv
 # Windows: .venv\Scripts\activate
-# Unix: source .venv/bin/activate
+# Unix:    source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your values
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-**Celery Worker (handles heavy background tasks):**
+Backend runs at `http://localhost:8000` (`/docs` for the OpenAPI UI). Embeddings download once on first use (~130 MB) and run on CPU. PR processing happens in-process — no separate worker.
 
-In a separate terminal:
-
-```bash
-cd backend
-.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Unix
-python start_worker.py
-```
-
-Backend runs at `http://localhost:8000`. The FastAPI app is now lightweight and fast - all heavy processing (agent sync, PR processing, Ollama model pulls) happens in the separate Celery worker process.
-
-**Frontend:**
+### Frontend
 
 ```bash
 cd frontend
+cp .env.example .env.local   # optional — defaults to http://localhost:8000
 npm install
 npm run dev
 ```
 
-Frontend runs at `http://localhost:3000`.
+Frontend runs at `http://localhost:3000`. It targets `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`).
 
-### Environment Variables
+### Full Docker deployment
 
-Copy `backend/.env.example` to `backend/.env` and configure the following variables. Each variable has inline comments explaining its purpose.
+Runs Postgres + backend + frontend + Nginx together:
 
 ```bash
-cp backend/.env.example backend/.env
-# Edit backend/.env with your configuration
+cp .env.example backend/.env   # then edit with real values
+docker compose up -d
 ```
 
-Key configuration areas:
-- **Database**: PostgreSQL connection string
-- **Auth**: JWT secret key for token signing
-- **GitHub App**: App ID, private key, webhook secret for production
-- **GitHub OAuth**: Client ID/secret for user authentication
-- **Google OAuth**: Client ID/secret for Google authentication
-- **LLM**: Ollama or Gemini configuration for code analysis
-- **Celery**: Redis URLs for background task processing
-- **Pipeline**: Spam threshold, flag ban threshold, payload limits
+App is served at `http://localhost` (Nginx proxies port 80).
 
-## 🔗 API Endpoints
+### Testing the flow locally
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/register` | No | Register a new user |
-| `POST` | `/api/auth/login` | No | Login, returns JWT access token |
-| `GET` | `/api/auth/me` | Yes | Get current user profile |
-| `GET` | `/api/agents` | Yes | List current user's agents |
-| `POST` | `/api/agents` | Yes | Create an agent (triggers repo ingestion) |
-| `GET` | `/api/agents/{id}` | Yes | Get agent details |
-| `PATCH` | `/api/agents/{id}` | Yes | Update agent (name, active, LLM, vector DB) |
-| `DELETE` | `/api/agents/{id}` | Yes | Delete an agent |
-| `POST` | `/api/agents/{id}/sync` | Yes | Trigger manual knowledge-base re-sync |
-| `GET` | `/api/events` | Yes | Paginated PR event log (filter by agent, decision) |
-| `GET` | `/api/events/count` | Yes | Count events matching filters |
-| `GET` | `/api/dashboard/stats` | Yes | Aggregate stats (total, approved, declined, flagged) |
-| `GET` | `/api/dashboard/per-agent` | Yes | Stats broken down per agent |
-| `GET` | `/api/dashboard/flagged-accounts` | Yes | Flagged GitHub accounts for user's agents |
-| `POST` | `/api/dashboard/flagged-accounts/{username}/unflag` | Yes | Manually remove flags from an account |
-| `GET` | `/api/github/oauth/authorize` | No | Get GitHub OAuth authorization URL |
-| `GET` | `/api/github/oauth/callback` | No | Handle GitHub OAuth callback |
-| `GET` | `/api/github/connections` | Yes | List user's GitHub connections |
-| `DELETE` | `/api/github/connections/{id}` | Yes | Delete a GitHub connection |
-| `GET` | `/api/github/connections/{id}/repos` | Yes | List repos accessible via connection |
-| `GET` | `/api/google/oauth/authorize` | No | Get Google OAuth authorization URL |
-| `GET` | `/api/google/oauth/callback` | No | Handle Google OAuth callback |
-| `POST` | `/webhooks/github` | HMAC | GitHub webhook receiver |
-| `POST` | `/webhooks/rotate-secret` | HMAC | Rotate webhook HMAC secret |
-| `GET` | `/metrics` | No | Prometheus-style metrics |
-| `GET` | `/health` | No | Liveness probe |
+1. Open `http://localhost:3000`, create an account, and sign in.
+2. Connect a GitHub account and create an agent on a repo you own; wait for ingestion to finish on the agent page.
+3. Expose the backend for webhooks (e.g. `ngrok http 8000`) and point a GitHub webhook at `<public-url>/webhooks/github` (event: Pull requests, secret = `GITHUB_WEBHOOK_SECRET`). No public URL? Use the agent's **Detect PRs** / **Sync** action to pull open PRs manually.
+4. Open a test PR on the repo. Watch it move through the pipeline on the dashboard; a malicious/spam/injection PR is declined, a clean one is rewritten and approved.
+
+## 🔌 API Endpoints
+
+Base URL `http://localhost:8000`. Auth is a Bearer JWT unless noted.
+
+| Method | Endpoint | Description | Auth |
+| --- | --- | --- | --- |
+| POST | `/api/auth/register` | Create an account | None |
+| POST | `/api/auth/login` | Get an access token | None |
+| GET | `/api/auth/me` | Current user | Bearer |
+| GET | `/api/settings` | Read LLM provider + which keys are set | Bearer |
+| PUT | `/api/settings` | Set provider + bring-your-own API keys | Bearer |
+| GET | `/api/agents` | List your agents | Bearer |
+| POST | `/api/agents` | Create an agent (starts ingestion) | Bearer |
+| GET | `/api/agents/{id}` | Get an agent | Bearer |
+| PATCH | `/api/agents/{id}` | Update an agent | Bearer |
+| DELETE | `/api/agents/{id}` | Delete an agent | Bearer |
+| POST | `/api/agents/{id}/sync` | Re-ingest + detect open PRs | Bearer |
+| POST | `/api/agents/{id}/detect-prs` | Detect + process open PRs | Bearer |
+| GET | `/api/agents/{id}/progress` | Ingestion + PR progress | Bearer |
+| GET | `/api/agents/{id}/ingestion-logs` | Ingestion step logs | Bearer |
+| GET | `/api/events` | List PR decision events | Bearer |
+| GET | `/api/events/processing-status` | Live per-PR processing status | Bearer |
+| GET | `/api/events/pr-detail/{agent_id}/{pr_number}` | Full PR detail | Bearer |
+| GET | `/api/dashboard/stats` | Aggregate stats | Bearer |
+| GET | `/api/dashboard/per-agent` | Per-agent stats | Bearer |
+| GET | `/api/dashboard/flagged-accounts` | Flagged / banned accounts | Bearer |
+| POST | `/api/dashboard/flagged-accounts/{username}/unflag` | Unflag an account | Bearer |
+| GET | `/api/github/oauth/authorize` | Start GitHub OAuth | Bearer |
+| GET | `/api/github/connections` | List GitHub connections | Bearer |
+| GET | `/api/github/connections/{id}/repos` | List repos for a connection | Bearer |
+| GET | `/api/google/oauth/authorize` | Start Google OAuth | Bearer |
+| POST | `/webhooks/github` | GitHub PR webhook receiver | HMAC signature |
 
 ## 📁 Project Structure
 
-```
-pr-guardian/
+```text
+PR Guardian/
 ├── backend/
 │   ├── app/
-│   │   ├── api/
-│   │   │   ├── agents.py
-│   │   │   ├── auth.py
-│   │   │   ├── dashboard.py
-│   │   │   ├── deps.py
-│   │   │   ├── events.py
-│   │   │   ├── github.py
-│   │   │   ├── github_oauth.py
-│   │   │   └── webhooks.py
-│   │   ├── core/
-│   │   │   ├── config.py
-│   │   │   ├── database.py
-│   │   │   ├── metrics.py
-│   │   │   └── security.py
-│   │   ├── models/
-│   │   │   ├── agent.py
-│   │   │   ├── github_account.py
-│   │   │   ├── github_connection.py
-│   │   │   ├── knowledge_chunk.py
-│   │   │   ├── pr_event.py
-│   │   │   └── user.py
+│   │   ├── main.py                # FastAPI app, lifespan, startup scan
+│   │   ├── tasks.py               # In-process background PR processing
+│   │   ├── api/                   # Route handlers (auth, agents, settings, webhooks, …)
+│   │   ├── core/                  # config, database, security, metrics
+│   │   ├── models/                # SQLAlchemy models (user, agent, pr_event, …)
+│   │   ├── schemas/               # Pydantic request/response schemas
 │   │   ├── pipeline/
-│   │   │   ├── graph.py
-│   │   │   ├── runner.py
-│   │   │   ├── state.py
-│   │   │   ├── utils.py
-│   │   │   └── nodes/
-│   │   │       ├── prompt_injection.py
-│   │   │       ├── spam.py
-│   │   │       ├── malicious_code.py
-│   │   │       ├── summary.py
-│   │   │       ├── flag_account.py
-│   │   │       ├── approve_pr.py
-│   │   │       └── decline_pr.py
-│   │   ├── schemas/
-│   │   │   ├── agent.py
-│   │   │   ├── auth.py
-│   │   │   ├── dashboard.py
-│   │   │   └── event.py
-│   │   ├── services/
-│   │   │   ├── chunker.py
-│   │   │   ├── github.py
-│   │   │   ├── ingestion.py
-│   │   │   ├── llm.py
-│   │   │   ├── rag.py
-│   │   │   ├── resilience.py
-│   │   │   └── vectorstore.py
-│   │   └── main.py
-│   ├── alembic/
-│   │   ├── env.py
-│   │   └── versions/
-│   │       ├── 0001_initial_schema.py
-│   │       └── 0002_knowledge_chunks.py
-│   ├── alembic.ini
-│   ├── Dockerfile
+│   │   │   ├── graph.py           # LangGraph wiring (the review gate)
+│   │   │   ├── runner.py          # Pipeline entrypoint + state build
+│   │   │   └── nodes/             # prompt_injection, spam, malicious_code, summary, …
+│   │   └── services/              # llm, embeddings, rag, ingestion, github, vectorstore
+│   ├── alembic/                   # Migrations
 │   └── requirements.txt
 ├── frontend/
 │   ├── app/
-│   │   ├── (auth)/
-│   │   │   ├── login/page.tsx
-│   │   │   └── signup/page.tsx
-│   │   ├── (app)/
-│   │   │   ├── dashboard/
-│   │   │   │   ├── page.tsx
-│   │   │   │   └── events/page.tsx
-│   │   │   ├── agents/
-│   │   │   │   ├── new/page.tsx
-│   │   │   │   └── [id]/
-│   │   │   │       ├── page.tsx
-│   │   │   │       └── settings/page.tsx
-│   │   │   └── layout.tsx
-│   │   ├── layout.tsx
-│   │   └── page.tsx
-│   ├── components/
-│   │   ├── custom/
-│   │   │   ├── app-shell.tsx
-│   │   │   ├── auth-guard.tsx
-│   │   │   └── sidebar.tsx
-│   │   └── ui/
-│   │       ├── badge.tsx
-│   │       ├── button.tsx
-│   │       ├── card.tsx
-│   │       ├── input.tsx
-│   │       ├── label.tsx
-│   │       └── select.tsx
-│   ├── lib/
-│   │   ├── api.ts
-│   │   ├── auth.ts
-│   │   ├── types.ts
-│   │   └── utils.ts
-│   ├── Dockerfile
-│   ├── next.config.mjs
+│   │   ├── page.tsx               # Marketing landing page
+│   │   ├── (auth)/                # login, signup, oauth callback
+│   │   └── (app)/                 # dashboard, agents, flagged, settings
+│   ├── components/                # ui/ (shadcn) + custom/ (sidebar, app-shell, theme)
+│   ├── lib/                       # api client, types, auth helpers
 │   └── package.json
-├── nginx/
-│   └── nginx.conf
+├── nginx/                         # Reverse-proxy config
 ├── docker-compose.yml
 └── .env.example
 ```
-
-## 📤 Exports
-
-### Backend (Python)
-
-| Module | Export | Type |
-|---|---|---|
-| `app.pipeline` | `PRState` | TypedDict — shared pipeline state schema |
-| `app.pipeline.graph` | `pipeline` | Compiled LangGraph `CompiledGraph` |
-| `app.pipeline.runner` | `run_pipeline()` | Async entrypoint: `repo_full_name, pr_number, pr_url, author → dict` |
-| `app.services.llm` | `get_llm_response()` | Async: `prompt, system, provider, model, temperature → str` |
-| `app.services.llm` | `get_embedding()` | Async: `text, provider, model → list[float]` |
-| `app.services.llm` | `embed_batch()` | Async: `texts, provider → list[list[float]]` |
-| `app.services.llm` | `resolve_provider()` | `agent → "ollama" \| "gemini"` |
-| `app.services.rag` | `retrieve()` | Async: `agent, query, k, alpha → list[ChunkHit]` (hybrid BM25 + vector) |
-| `app.services.rag` | `retrieve_texts()` | Async: `agent, query, k → list[str]` |
-| `app.services.vectorstore` | `vector_store` | `PgVectorStore` singleton — `search()`, `add()`, `reset()` |
-| `app.services.resilience` | `retry_async()` | Async: `func, attempts, base_delay, max_delay → T` |
-| `app.core.metrics` | `serialize_metrics()` | Returns Prometheus text-format metrics string |
-| `app.core.metrics` | `inc_counter()` | Increment a named counter with optional labels |
-| `app.core.metrics` | `observe_histogram()` | Record a value in a named histogram |
-
-### Frontend (TypeScript)
-
-| Module | Export | Type |
-|---|---|---|
-| `lib/api` | `api` | Object with all API methods (login, agents, events, dashboard) |
-| `lib/api` | `getToken()` / `setToken()` / `clearToken()` | JWT token localStorage helpers |
-| `lib/auth` | `useSession` | React hook for authentication state |
-| `lib/types` | `Agent`, `PREvent`, `DashboardStats`, etc. | All shared TypeScript interfaces |
-
-## 📄 License
-
-MIT

@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.metrics import inc_counter
 from app.core.database import AsyncSessionLocal
 from app.models.pr_event import PREvent
-from app.tasks import process_pr_task
+from app.tasks import process_pr
 
 logger = logging.getLogger(__name__)
 
@@ -233,15 +233,15 @@ async def github_webhook(
                         await db.commit()
                         logger.info(f"webhook: updated processing status for PR #{pr_number} from 'detected' to 'queued'")
     
-    # Run this synchronously before dispatching
-    import asyncio
+    # Create the "queued" status now so the dashboard shows progress immediately.
     try:
-        asyncio.run(_create_processing_status())
-    except Exception as exc:
+        await _create_processing_status()
+    except Exception as exc:  # noqa: BLE001
         logger.warning("webhook: failed to create/update processing status: %s", exc)
 
-    # 6. Dispatch — do NOT block the webhook response.
-    process_pr_task.delay(
+    # 6. Dispatch in-process — runs after the 202 response is sent.
+    background_tasks.add_task(
+        process_pr,
         repo_full_name=repo_full_name,
         pr_number=int(pr_number),
         pr_url=pr_url,

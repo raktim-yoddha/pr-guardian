@@ -11,7 +11,7 @@ import logging
 from app.pipeline.state import PRState
 from app.pipeline.utils import update_layer_progress
 from app.services.github import GithubError, github_client
-from app.services.llm import get_llm_response, resolve_provider
+from app.services.llm import llm_from_state
 from app.services.rag import retrieve_texts
 
 logger = logging.getLogger(__name__)
@@ -31,14 +31,17 @@ generate:
    - types: feat, fix, docs, style, refactor, perf, test, build, ci, chore
    - Example: "feat(auth): add JWT token refresh endpoint"
 
-2. A well-structured PR description with:
-   - What changed
-   - Why it was needed
-   - Which issue(s) it closes (if any)
-   - Impact on the codebase
+2. A well-structured PR description in GitHub-flavored markdown with:
+   - Use ## for main section headings (What changed, Why it was needed, etc.)
+   - Leave a blank line after each heading
+   - Include: What changed, Why it was needed, Which issue(s) it closes (if any), Impact on the codebase
+   - Use proper markdown formatting throughout (bullet points, code blocks, etc.)
+   - Do NOT truncate or cut off any content - ensure complete sentences and thoughts
 
-Return ONLY a JSON object with exactly two fields:
-{"title": "the improved title", "body": "the improved description in markdown"}
+IMPORTANT: Return ONLY a valid JSON object with exactly two fields:
+{"title": "the improved title", "body": "the complete improved description in markdown"}
+
+Ensure the JSON is complete and properly formatted. Do not include any text outside the JSON object.
 """
 
 
@@ -76,10 +79,12 @@ Diff:
 
 Generate an improved title and description. Return JSON: {{"title": "...", "body": "..."}}"""
 
-    provider = resolve_provider(agent)
     try:
-        raw = await get_llm_response(user_prompt, SUMMARY_SYSTEM, provider=provider)
+        raw = await llm_from_state(state, user_prompt, SUMMARY_SYSTEM, max_tokens=4096)
+        logger.info("summary_layer: raw LLM response length=%d", len(raw))
+        logger.debug("summary_layer: raw LLM response: %s", raw[:500])
         new_title, new_body = _parse_response(raw)
+        logger.info("summary_layer: parsed title length=%d, body length=%d", len(new_title), len(new_body))
     except Exception as exc:  # noqa: BLE001
         logger.warning("summary_layer: LLM error (%s), using original", exc)
         new_title, new_body = pr_title, pr_body
@@ -97,7 +102,7 @@ Generate an improved title and description. Return JSON: {{"title": "...", "body
     except GithubError as exc:
         logger.warning("summary_layer: failed to update PR on GitHub (%s)", exc)
 
-    summary_result = {"title": new_title, "body": new_body}
+    summary_result = {"title": new_title, "body": new_body, "body_preview": new_body}
     await update_layer_progress(state.get("agent_id"), state.get("pr_number"), "summary", summary_result)
 
     logger.info("summary_layer: approved PR #%s", pr_number)
@@ -114,8 +119,37 @@ Generate an improved title and description. Return JSON: {{"title": "...", "body
 
 def _parse_response(raw: str) -> tuple[str, str]:
     import json, re
-    m = re.search(r"\{[^}]+\}", raw, re.DOTALL)
-    if m:
-        raw = m.group(0)
-    data = json.loads(raw)
-    return str(data.get("title", "")), str(data.get("body", ""))
+    
+    # Try to extract JSON object more robustly - handle nested braces
+    brace_count = 0
+    start_idx = -1
+    for i, char in enumerate(raw):
+        if char == '{':
+            if brace_count == 0:
+                start_idx = i
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0 and start_idx != -1:
+                raw = raw[start_idx:i+1]
+                break
+    
+    # Fallback to regex if brace counting didn't work
+    if start_idx == -1 or brace_count != 0:
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if m:
+            raw = m.group(0)
+    
+    try:
+        data = json.loads(raw)
+        return str(data.get("title", "")), str(data.get("body", ""))
+    except json.JSONDecodeError:
+        # If JSON parsing fails, try to extract title and body with regex
+        title_match = re.search(r'"title"\s*:\s*"([^"]*)"', raw)
+        body_match = re.search(r'"body"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', raw, re.DOTALL)
+        title = title_match.group(1) if title_match else ""
+        body = body_match.group(1) if body_match else ""
+        # Unescape JSON strings
+        if body:
+            body = body.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
+        return title, body

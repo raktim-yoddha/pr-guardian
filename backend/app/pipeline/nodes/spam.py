@@ -10,7 +10,7 @@ import re
 
 from app.pipeline.state import PRState
 from app.pipeline.utils import update_layer_progress
-from app.services.llm import get_llm_response, resolve_provider
+from app.services.llm import llm_from_state
 from app.services.rag import retrieve_texts
 
 logger = logging.getLogger(__name__)
@@ -150,9 +150,8 @@ Diff (first 2000 chars):
 
 Score this PR's spam/uselessness likelihood. Return JSON: {{"score": 0.0-1.0, "reason": "..."}}"""
 
-    provider = resolve_provider(agent)
     try:
-        raw = await get_llm_response(user_prompt, SPAM_SYSTEM, provider=provider)
+        raw = await llm_from_state(state, user_prompt, SPAM_SYSTEM)
         score, llm_reason = _parse_llm_response(raw)
     except Exception as exc:  # noqa: BLE001
         logger.warning("spam_detection: LLM error (%s), passing", exc)
@@ -180,12 +179,11 @@ Score this PR's spam/uselessness likelihood. Return JSON: {{"score": 0.0-1.0, "r
 
 
 def _parse_llm_response(raw: str) -> tuple[float, str]:
-    import json
+    from app.pipeline.utils import extract_json
 
-    raw = raw.strip()
-    # Try to extract JSON from possible markdown code fences.
-    m = re.search(r"\{[^}]+\}", raw)
-    if m:
-        raw = m.group(0)
-    data = json.loads(raw)
-    return float(data.get("score", 0.0)), str(data.get("reason", ""))
+    data = extract_json(raw)
+    try:
+        score = float(data.get("score", 0.0))
+    except (TypeError, ValueError):
+        score = 0.0
+    return max(0.0, min(1.0, score)), str(data.get("reason", ""))

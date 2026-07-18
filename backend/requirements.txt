@@ -24,6 +24,5 @@ pydantic-settings>=2.9
 # --- Orchestration (LangGraph pipeline) ---
 langgraph>=0.2.60
 
-# --- Background tasks (Celery + Redis) ---
-celery>=5.4.0
-redis>=5.2.1
+# --- Local CPU embeddings (ONNX, no external service) ---
+fastembed>=0.4.2

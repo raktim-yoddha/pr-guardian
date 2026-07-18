@@ -64,13 +64,26 @@ class Settings(BaseSettings):
     # alongside the rest of the data; no separate service). EMBEDDING_DIM is set
     # in the LLM section below alongside the embedding model names.
 
-    # LLM
-    LLM_PROVIDER: Literal["ollama"] = "ollama"
+    # LLM — chat provider. Default groq (free, fast). Per-user override + BYO
+    # key lives on the User row; env keys below are the shared fallback.
+    LLM_PROVIDER: Literal["groq", "gemini", "ollama"] = "groq"
+
+    # Groq (OpenAI-compatible REST)
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Google Gemini (generativelanguage REST)
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+
+    # Ollama (local, opt-in)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
-    OLLAMA_EMBED_MODEL: str = "bge-m3"
-    # Dimensionality of the bge-m3 embedding model. pgvector stores vectors of exactly this width.
-    EMBEDDING_DIM: int = 1024
+
+    # Embeddings — local CPU model via fastembed (ONNX, no external service, no
+    # key). bge-small-en-v1.5 = 384 dims; pgvector column width must match.
+    EMBED_MODEL: str = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_DIM: int = 384
 
     # RAG
     RAG_CHUNK_TOKENS: int = 512
@@ -92,10 +105,6 @@ class Settings(BaseSettings):
     SPAM_THRESHOLD: float = 0.75
     FLAG_BAN_THRESHOLD: int = 3
     MAX_PR_DIFF_BYTES: int = 500 * 1024
-
-    # Celery (background tasks)
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
 
 
 @lru_cache

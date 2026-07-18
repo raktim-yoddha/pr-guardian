@@ -11,8 +11,21 @@ export interface Token {
   token_type: string;
 }
 
-export type LlmProvider = "ollama" | "gemini";
+export type LlmProvider = "groq" | "gemini" | "ollama";
 export type VectorDbType = "pgvector" | "chromadb";
+
+export interface UserSettings {
+  preferred_provider: LlmProvider | null;
+  ollama_base_url: string | null;
+  configured_providers: string[];
+  default_provider: string;
+}
+
+export interface UserSettingsUpdate {
+  preferred_provider?: LlmProvider | null;
+  ollama_base_url?: string | null;
+  api_keys?: Partial<Record<LlmProvider, string>>;
+}
 
 export interface Agent {
   id: number;

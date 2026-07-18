@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.knowledge_chunk import KnowledgeChunk
-from app.services.llm import get_embedding, resolve_provider
+from app.services.embeddings import embed_one, embeddings_available
 from app.services.vectorstore import ChunkHit, vector_store
 
 
@@ -129,58 +129,48 @@ async def retrieve(
         k: Number of results to return
         alpha: Weight for vector search (0-1). BM25 weight is (1-alpha).
     """
-    # Get vector search results
-    provider = resolve_provider(agent)
-    query_embedding = await get_embedding(query, provider=provider)
-    vector_hits = await vector_store.search(agent.id, query_embedding, k=k * 2)
-    
-    # Get BM25 search results
-    bm25_index = await _get_bm25_index(agent.id)
-    
-    # Build mapping of chunk content to vector hit
-    vector_scores: dict[str, float] = {}
-    for hit in vector_hits:
-        vector_scores[hit.content] = hit.score
-    
-    # Get all chunks for BM25 scoring
+    # Load all chunks once.
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(KnowledgeChunk).where(KnowledgeChunk.agent_id == agent.id)
         )
-        chunks = result.scalars().all()
-    
-    # Calculate BM25 scores for all chunks
-    bm25_scores: dict[int, float] = {}
-    for chunk in chunks:
-        bm25_scores[chunk.id] = bm25_index.score(chunk.id, query)
-    
-    # Combine scores
-    combined_hits: list[tuple[ChunkHit, float]] = []
-    for chunk in chunks:
-        vector_score = vector_scores.get(chunk.content, 0.0)
-        bm25_score = bm25_scores.get(chunk.id, 0.0)
-        
-        # Normalize scores
-        all_vector_scores = [vector_scores.get(c.content, 0.0) for c in chunks]
-        all_bm25_scores = list(bm25_scores.values())
-        
-        norm_vector = _normalize_scores(all_vector_scores)[chunks.index(chunk)]
-        norm_bm25 = _normalize_scores(all_bm25_scores)[chunks.index(chunk)]
-        
-        # Weighted combination
-        combined_score = alpha * norm_vector + (1 - alpha) * norm_bm25
-        
-        hit = ChunkHit(
-            content=chunk.content,
-            source_type=chunk.source_type,
-            source_ref=chunk.source_ref,
-            score=combined_score,
+        chunks = list(result.scalars().all())
+    if not chunks:
+        return []
+
+    # BM25 keyword scores (always available).
+    bm25_index = await _get_bm25_index(agent.id)
+    bm25_by_content: dict[str, float] = {c.content: bm25_index.score(c.id, query) for c in chunks}
+
+    # Vector scores — only if the local embedding model loaded. Otherwise BM25-only.
+    vector_by_content: dict[str, float] = {}
+    use_vector = embeddings_available()
+    if use_vector:
+        try:
+            query_embedding = await embed_one(query)
+            for hit in await vector_store.search(agent.id, query_embedding, k=k * 2):
+                vector_by_content[hit.content] = hit.score
+        except Exception:  # noqa: BLE001 — degrade to BM25-only on any embedding failure
+            use_vector = False
+
+    contents = [c.content for c in chunks]
+    norm_bm25 = dict(zip(contents, _normalize_scores([bm25_by_content.get(x, 0.0) for x in contents])))
+    if use_vector:
+        norm_vec = dict(zip(contents, _normalize_scores([vector_by_content.get(x, 0.0) for x in contents])))
+    else:
+        alpha = 0.0  # BM25-only weighting
+        norm_vec = {x: 0.0 for x in contents}
+
+    scored = [
+        (
+            ChunkHit(content=c.content, source_type=c.source_type, source_ref=c.source_ref,
+                     score=alpha * norm_vec[c.content] + (1 - alpha) * norm_bm25[c.content]),
+            alpha * norm_vec[c.content] + (1 - alpha) * norm_bm25[c.content],
         )
-        combined_hits.append((hit, combined_score))
-    
-    # Sort by combined score and return top-k
-    combined_hits.sort(key=lambda x: x[1], reverse=True)
-    return [hit for hit, _ in combined_hits[:k]]
+        for c in chunks
+    ]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [hit for hit, _ in scored[:k]]
 
 
 async def retrieve_texts(agent, query: str, k: int = 8) -> list[str]:

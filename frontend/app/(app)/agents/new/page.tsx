@@ -30,7 +30,7 @@ export default function NewAgentPage() {
   const [name, setName] = useState("");
   const [selectedConnection, setSelectedConnection] = useState<number | null>(null);
   const [selectedRepo, setSelectedRepo] = useState("");
-  const [llm, setLlm] = useState<LlmProvider>("ollama");
+  const [llm, setLlm] = useState<LlmProvider>("groq");
   const [vectorDb, setVectorDb] = useState<VectorDbType>("pgvector");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,14 +120,14 @@ export default function NewAgentPage() {
             )}
             
             {connections.length === 0 ? (
-              <div className="rounded-md bg-amber-50 border border-amber-200 p-4">
+              <div className="rounded-md border border-warning/30 bg-warning/10 p-4">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                  <AlertCircle className="mt-0.5 h-5 w-5 text-warning" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-amber-800">
+                    <p className="text-sm font-medium text-foreground">
                       No GitHub accounts connected
                     </p>
-                    <p className="text-sm text-amber-700 mt-1">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       Connect a GitHub account from the sidebar to create an agent.
                     </p>
                   </div>
@@ -208,8 +208,9 @@ export default function NewAgentPage() {
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="ollama">Ollama (local)</SelectItem>
+                        <SelectItem value="groq">Groq (fast, free)</SelectItem>
                         <SelectItem value="gemini">Gemini Flash</SelectItem>
+                        <SelectItem value="ollama">Ollama (local)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

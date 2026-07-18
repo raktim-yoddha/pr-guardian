@@ -21,6 +21,8 @@ import type {
   PREvent,
   Token,
   User,
+  UserSettings,
+  UserSettingsUpdate,
 } from "./types";
 
 export const API_BASE_URL =
@@ -231,5 +233,13 @@ export const api = {
   // ----------------------------------------------------------- Google OAuth
   async getGoogleAuthUrl(): Promise<{ authorization_url: string }> {
     return request<{ authorization_url: string }>("/api/google/oauth/authorize");
+  },
+
+  // ------------------------------------------------------------- settings
+  async getSettings(): Promise<UserSettings> {
+    return request<UserSettings>("/api/settings");
+  },
+  async updateSettings(patch: UserSettingsUpdate): Promise<UserSettings> {
+    return request<UserSettings>("/api/settings", { method: "PUT", body: patch });
   },
 };

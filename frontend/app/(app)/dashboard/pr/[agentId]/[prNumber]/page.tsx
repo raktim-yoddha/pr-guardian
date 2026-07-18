@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -268,17 +270,22 @@ export default function PRDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {layerResults.hijack_proof && (
+            {layerResults.prompt_injection && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 font-medium">
-                  <Badge variant="outline">Hijack Proof Check</Badge>
+                  <Badge variant="outline">Prompt Injection Check</Badge>
                   <span className="text-sm text-muted-foreground">
-                    {layerResults.hijack_proof.detected ? "⚠️ Detected" : "✓ Clean"}
+                    {layerResults.prompt_injection.regex || layerResults.prompt_injection.llm ? "⚠️ Detected" : "✓ Clean"}
                   </span>
                 </div>
-                {layerResults.hijack_proof.reason && (
+                {layerResults.prompt_injection.category && (
                   <p className="text-sm text-muted-foreground pl-2">
-                    {layerResults.hijack_proof.reason}
+                    Category: {layerResults.prompt_injection.category}
+                  </p>
+                )}
+                {layerResults.prompt_injection.reason && (
+                  <p className="text-sm text-muted-foreground pl-2">
+                    {layerResults.prompt_injection.reason}
                   </p>
                 )}
               </div>
@@ -361,12 +368,14 @@ export default function PRDetailPage() {
                 <p className="text-sm bg-secondary p-2 rounded">{layerResults.summary.title}</p>
               </div>
             )}
-            {(layerResults.summary.body || layerResults.summary.body_preview) && (
+            {layerResults.summary && (
               <div>
                 <p className="font-medium mb-1">Generated Body:</p>
-                <p className="text-sm bg-secondary p-2 rounded whitespace-pre-wrap">
-                  {layerResults.summary.body || layerResults.summary.body_preview}
-                </p>
+                <div className="text-sm bg-secondary p-4 rounded prose prose-sm max-w-none dark:prose-invert prose-headings:mt-4 prose-headings:mb-2 prose-h2:text-xl prose-h2:font-bold">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {layerResults.summary.body_preview || layerResults.summary.body || "No body content available"}
+                  </ReactMarkdown>
+                </div>
               </div>
             )}
           </CardContent>

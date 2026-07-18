@@ -38,6 +38,16 @@ async def _load_agent(repo_full_name: str) -> Agent | None:
         )
 
 
+async def _resolve_llm(agent: Agent) -> dict:
+    """Resolve the LLM provider/model/key for the agent owner (BYO → env default)."""
+    from app.models.user import User
+    from app.services.llm import resolve_llm_config
+
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, agent.user_id)
+    return resolve_llm_config(user)
+
+
 async def _fetch_pr(repo_full_name: str, pr_number: int, installation_id: int | None = None) -> tuple[str, str, str]:
     """Return (title, body, diff) for the PR. Falls back to empty strings."""
     title = body = diff = ""
@@ -176,6 +186,7 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
         body = pr_body
     
     flag_count, is_banned = await _get_author_flags(author)
+    llm_cfg = await _resolve_llm(agent)
 
     state: PRState = {
         "agent_id": agent.id,
@@ -196,6 +207,10 @@ async def run_pipeline(repo_full_name: str, pr_number: int, pr_url: str, author:
         "summary_body": None,
         "author_flag_count": flag_count,
         "author_is_banned": is_banned,
+        "llm_provider": llm_cfg["provider"],
+        "llm_model": llm_cfg["model"],
+        "llm_api_key": llm_cfg["api_key"],
+        "llm_base_url": llm_cfg["base_url"],
     }
 
     try:

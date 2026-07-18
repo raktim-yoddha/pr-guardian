@@ -11,27 +11,33 @@ import re
 
 from app.pipeline.state import PRState
 from app.pipeline.utils import update_layer_progress
-from app.services.llm import get_llm_response, resolve_provider
+from app.services.llm import llm_from_state
 
 logger = logging.getLogger(__name__)
 
-MALICIOUS_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("eval() call", re.compile(r"\beval\s*\(", re.IGNORECASE)),
-    ("exec() call", re.compile(r"\bexec\s*\(", re.IGNORECASE)),
-    ("subprocess call", re.compile(r"\bsubprocess\.", re.IGNORECASE)),
-    ("os.system call", re.compile(r"\bos\s*\.\s*system\s*\(", re.IGNORECASE)),
-    ("base64 decode", re.compile(r"\bbase64\s*\.\s*b64decode\s*\(", re.IGNORECASE)),
-    ("base64.b64decode", re.compile(r"base64\.b64decode\s*\(")),
-    ("hardcoded IP in code", re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
-    ("secret/token env exfil", re.compile(r"os\.environ|ENV\[", re.IGNORECASE)),
-    ("requests to external IP", re.compile(
-        r"requests?\.(get|post|put|delete|patch)\s*\(\s*['\"]?https?://\d{1,3}\.\d{1,3}", re.IGNORECASE)),
-    ("malware pattern: keylogger", re.compile(r"keylog|hook.*keyboard|GetAsyncKeyState", re.IGNORECASE)),
-    ("malware pattern: reverse shell", re.compile(
-        r"socket\s*\.\s*connect|reverse.shell|backdoor", re.IGNORECASE)),
-    ("obfuscated string", re.compile(r"\\\\x[0-9a-f]{2}.*\\\\x[0-9a-f]{2}", re.IGNORECASE)),
-    ("pickle deserialization", re.compile(r"pickle\.loads?\s*\(", re.IGNORECASE)),
-    ("ctypes shellcode", re.compile(r"ctypes\.|VirtualAlloc|CreateThread", re.IGNORECASE)),
+# High-signal: strong malware indicators. A static hit here → immediate decline.
+HIGH_SIGNAL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("keylogger", re.compile(r"keylog|GetAsyncKeyState|pynput\.keyboard", re.IGNORECASE)),
+    ("reverse shell / backdoor", re.compile(r"reverse.?shell|backdoor|/bin/sh['\"]?\s*,?\s*['\"]?-i|nc\s+-e", re.IGNORECASE)),
+    ("shellcode (ctypes)", re.compile(r"VirtualAlloc|CreateRemoteThread|WriteProcessMemory", re.IGNORECASE)),
+    ("obfuscated exec", re.compile(r"exec\s*\(\s*(base64|bytes\.fromhex|codecs\.decode)", re.IGNORECASE)),
+    ("eval of decoded payload", re.compile(r"eval\s*\(\s*(base64|bytes\.fromhex|__import__)", re.IGNORECASE)),
+]
+
+# Suspicious dual-use: legitimate in many PRs. These do NOT auto-decline — they
+# are surfaced to the LLM, which decides in context. Avoids false declines on
+# normal code that happens to use subprocess/eval/env vars.
+SUSPICIOUS_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("eval()", re.compile(r"\beval\s*\(", re.IGNORECASE)),
+    ("exec()", re.compile(r"\bexec\s*\(", re.IGNORECASE)),
+    ("subprocess", re.compile(r"\bsubprocess\.", re.IGNORECASE)),
+    ("os.system", re.compile(r"\bos\s*\.\s*system\s*\(", re.IGNORECASE)),
+    ("base64 decode", re.compile(r"base64\s*\.\s*b64decode\s*\(", re.IGNORECASE)),
+    ("env var access", re.compile(r"os\.environ|process\.env", re.IGNORECASE)),
+    ("request to raw IP", re.compile(
+        r"(requests?|fetch|axios|urllib)\S*\(\s*['\"]?https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", re.IGNORECASE)),
+    ("pickle load", re.compile(r"pickle\.loads?\s*\(", re.IGNORECASE)),
+    ("ctypes", re.compile(r"\bctypes\.", re.IGNORECASE)),
 ]
 
 
@@ -54,27 +60,22 @@ Return ONLY JSON: {"malicious": true/false, "reason": "brief explanation"}
 """
 
 
-def _static_scan(diff: str) -> list[tuple[str, str, list[str]]]:
-    """Return list of (filename, pattern_name, matching_lines) for risky hunks."""
-    findings: list[tuple[str, str, list[str]]] = []
-    current_file = ""
-    lines: list[str] = []
+def _static_scan(diff: str, patterns: list[tuple[str, re.Pattern[str]]]) -> list[tuple[str, str]]:
+    """Return (filename, pattern_name) for added lines matching ``patterns``.
 
+    Only scans added lines (``+``) — removed code isn't a new risk.
+    """
+    findings: list[tuple[str, str]] = []
+    current_file = ""
     for line in diff.splitlines():
-        # Track which file we're in.
         if line.startswith("diff --git"):
             current_file = line.split(" b/")[-1] if " b/" in line else line
-            lines = []
             continue
-        if line.startswith("@@"):
+        if not line.startswith("+") or line.startswith("+++"):
             continue
-        if line.startswith("+") or line.startswith("-"):
-            if not line.startswith("+++") and not line.startswith("---"):
-                lines.append(line)
-
-        for name, pat in MALICIOUS_PATTERNS:
+        for name, pat in patterns:
             if pat.search(line):
-                findings.append((current_file, name, [line.strip()]))
+                findings.append((current_file, name))
     return findings
 
 
@@ -84,16 +85,14 @@ async def malicious_code_detection(state: PRState) -> dict:
     diff = state.get("pr_diff") or ""
     logger.info("malicious_code_detection: PR #%s", state.get("pr_number"))
 
-    # Phase 1: static scan.
-    static_hits = _static_scan(diff)
-    if static_hits:
-        hit_summary = "; ".join(
-            f"{fname}: {pat}" for fname, pat, _ in static_hits[:5]
-        )
-        logger.info("malicious_code_detection: static decline — %s", hit_summary)
+    # Phase 1: high-signal static scan → immediate decline (strong malware only).
+    high_hits = _static_scan(diff, HIGH_SIGNAL_PATTERNS)
+    if high_hits:
+        hit_summary = "; ".join(f"{fname}: {pat}" for fname, pat in high_hits[:5])
+        logger.info("malicious_code_detection: high-signal decline — %s", hit_summary)
         result = {
             "final_decision": "declined",
-            "decline_reason": f"[Malicious Code/Static] {hit_summary}",
+            "decline_reason": f"[Malicious Code] {hit_summary}",
             "flag_account": True,
             "layer_results": {
                 **state.get("layer_results", {}),
@@ -103,11 +102,19 @@ async def malicious_code_detection(state: PRState) -> dict:
         await update_layer_progress(state.get("agent_id"), state.get("pr_number"), "malicious_code", result["layer_results"]["malicious_code"])
         return result
 
-    # Phase 2: LLM scan on high-risk hunks (or full diff if short enough).
-    # Include PR title and body for additional context
+    # Phase 2: LLM scan. Dual-use signals are surfaced as hints, NOT auto-declines.
+    suspicious = _static_scan(diff, SUSPICIOUS_PATTERNS)
+    suspicious_note = (
+        "Static scan flagged these dual-use patterns (may be legitimate — judge in context): "
+        + "; ".join(f"{f}: {p}" for f, p in suspicious[:8])
+        if suspicious else "None."
+    )
     truncated = diff[:4000]
-    agent = state.get("agent")
     user_prompt = f"""\
+<static_signals>
+{suspicious_note}
+</static_signals>
+
 <pr_content>
 Title: {pr_title}
 
@@ -118,11 +125,12 @@ Diff:
 {truncated}
 </pr_content>
 
-Analyze this PR for malicious code patterns. Return JSON: {{"malicious": true/false, "reason": "..."}}"""
+Analyze this PR for genuinely malicious code. Dual-use patterns above are NOT
+malicious by themselves — only flag if the intent is clearly harmful. Return
+JSON: {{"malicious": true/false, "reason": "..."}}"""
 
-    provider = resolve_provider(agent)
     try:
-        raw = await get_llm_response(user_prompt, MALICIOUS_SYSTEM, provider=provider)
+        raw = await llm_from_state(state, user_prompt, MALICIOUS_SYSTEM)
         malicious, reason = _parse_response(raw)
     except Exception as exc:  # noqa: BLE001
         logger.warning("malicious_code_detection: LLM error (%s), passing", exc)
@@ -161,9 +169,7 @@ Analyze this PR for malicious code patterns. Return JSON: {{"malicious": true/fa
 
 
 def _parse_response(raw: str) -> tuple[bool, str]:
-    import json, re
-    m = re.search(r"\{[^}]+\}", raw)
-    if m:
-        raw = m.group(0)
-    data = json.loads(raw)
+    from app.pipeline.utils import extract_json
+
+    data = extract_json(raw)
     return bool(data.get("malicious", False)), str(data.get("reason", ""))

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
-LLMProvider = Literal["ollama", "gemini"]
+LLMProvider = Literal["groq", "gemini", "ollama"]
 VectorDBType = Literal["pgvector", "chromadb"]
 IngestionStatus = Literal["pending", "running", "done", "failed"]
 
@@ -23,7 +23,7 @@ class Agent(Base):
     repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     # e.g. "octocat/Hello-World"
 
-    llm_provider: Mapped[str] = mapped_column(String(16), nullable=False, default="ollama")
+    llm_provider: Mapped[str] = mapped_column(String(16), nullable=False, default="groq")
     vector_db_type: Mapped[str] = mapped_column(String(16), nullable=False, default="pgvector")
 
     github_installation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

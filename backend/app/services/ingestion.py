@@ -18,11 +18,21 @@ from app.core.database import AsyncSessionLocal
 from app.models.agent import Agent
 from app.models.ingestion_log import IngestionLog
 from app.services.chunker import chunk_text, estimate_tokens
+from app.services.embeddings import embed_one, embeddings_available
 from app.services.github import GithubError, github_client
-from app.services.llm import get_embedding, resolve_provider
 from app.services.vectorstore import vector_store
 
 logger = logging.getLogger(__name__)
+
+
+async def _maybe_embed(text: str) -> list[float] | None:
+    """Embed with the local CPU model if available; else None (BM25-only fallback)."""
+    if not embeddings_available():
+        return None
+    try:
+        return await embed_one(text)
+    except Exception:  # noqa: BLE001 — never fail ingestion over one embedding
+        return None
 
 
 async def _log_ingestion_step(
@@ -124,16 +134,10 @@ async def _fetch_repo_chunks(
             continue
         
         processed += 1
-        chunk_count = 0
         for chunk in chunk_text(content):
             text = f"# file: {path}\n{chunk.text}"
-            try:
-                embedding = await get_embedding(text, provider=provider)  # type: ignore[arg-type]
-                triples.append((path, text, embedding))
-                chunk_count += 1
-            except Exception as exc:
-                await _log_ingestion_step(agent_id, "embedding", f"Failed to embed chunk in {path}: {exc}", status="error")
-                continue
+            embedding = await _maybe_embed(text)
+            triples.append((path, text, embedding))
 
     await _log_ingestion_step(
         agent_id, 
@@ -187,7 +191,7 @@ async def _fetch_issue_chunks(
             text += "\n\n## comments\n" + "\n\n---\n\n".join(comment_bodies)
 
         for chunk in chunk_text(text):
-            embedding = await get_embedding(chunk.text, provider=provider)  # type: ignore[arg-type]
+            embedding = await _maybe_embed(chunk.text)
             triples.append((ref, chunk.text, embedding))
 
     await _log_ingestion_step(
@@ -235,39 +239,16 @@ async def ingest_agent(agent_id: int) -> int:
         if agent is None:
             raise ValueError(f"Agent {agent_id} not found")
         repo_full_name = agent.repo_full_name
-        provider = resolve_provider(agent)
         installation_id = agent.github_installation_id
 
+    provider = "local-embed" if embeddings_available() else "bm25-only"
     await _set_status(agent_id, "running")
     await _log_ingestion_step(
         agent_id,
         "ingestion_start",
-        f"Starting ingestion for {repo_full_name} with {provider}",
+        f"Starting ingestion for {repo_full_name} (retrieval: {provider})",
         status="info"
     )
-
-    # Check if Ollama is accessible before starting
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
-            resp.raise_for_status()
-            models = resp.json().get("models", [])
-            model_names = [m.get("name") for m in models]
-            await _log_ingestion_step(
-                agent_id,
-                "check_ollama",
-                f"Ollama accessible. Available models: {', '.join(model_names)}",
-                status="success"
-            )
-    except Exception as exc:
-        await _log_ingestion_step(
-            agent_id,
-            "check_ollama",
-            f"Ollama not accessible at {settings.OLLAMA_BASE_URL}: {exc}",
-            status="error"
-        )
-        raise RuntimeError(f"Ollama not accessible: {exc}")
 
     try:
         # Reset existing chunks for this agent (idempotent re-sync).

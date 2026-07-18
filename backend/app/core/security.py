@@ -4,16 +4,44 @@ Uses ``bcrypt`` directly (no passlib). passlib is incompatible with modern
 bcrypt releases and crashes on passwords longer than 72 bytes; calling bcrypt
 directly is simpler and avoids both problems.
 """
+import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any
 
 import bcrypt
+from cryptography.fernet import Fernet, InvalidToken
 from jose import JWTError, jwt
 
 from app.core.config import settings
 
 ALGORITHM = settings.JWT_ALGORITHM
 _BCRYPT_MAX_BYTES = 72  # bcrypt hard limit
+
+
+@lru_cache
+def _fernet() -> Fernet:
+    """Fernet keyed off SECRET_KEY — no separate secret to manage.
+
+    ponytail: derives the 32-byte key from SECRET_KEY via SHA-256. Rotating
+    SECRET_KEY invalidates stored ciphertexts (acceptable: keys are re-enterable).
+    """
+    digest = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt a user-supplied secret (e.g. an LLM API key) for storage at rest."""
+    return _fernet().encrypt(plaintext.encode()).decode()
+
+
+def decrypt_secret(ciphertext: str) -> str | None:
+    """Decrypt a stored secret. Returns None if it can't be decrypted."""
+    try:
+        return _fernet().decrypt(ciphertext.encode()).decode()
+    except (InvalidToken, ValueError):
+        return None
 
 
 def _truncate(password: str) -> bytes:

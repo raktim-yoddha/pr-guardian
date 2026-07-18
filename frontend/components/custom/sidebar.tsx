@@ -7,9 +7,9 @@ import { api, clearToken } from "@/lib/api";
 import type { GitHubConnection, User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/custom/theme-provider";
-import { 
-  LayoutDashboard, 
-  GitBranch, 
+import {
+  LayoutDashboard,
+  GitBranch,
   Shield,
   Plus,
   Github,
@@ -19,7 +19,8 @@ import {
   User as UserIcon,
   Moon,
   Sun,
-  Monitor
+  Monitor,
+  Settings as SettingsIcon
 } from "lucide-react";
 
 export function Sidebar() {
@@ -85,14 +86,15 @@ export function Sidebar() {
     { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/agents", icon: GitBranch, label: "Agents" },
     { href: "/flagged", icon: Shield, label: "Flagged Accounts" },
+    { href: "/settings", icon: SettingsIcon, label: "Settings" },
   ];
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <aside className="w-64 border-r bg-card h-screen flex flex-col">
+    <aside className="w-64 border-r bg-card h-screen flex flex-col overflow-hidden">
       {/* Logo */}
-      <div className="p-6 border-b">
+      <div className="p-6 border-b flex-shrink-0">
         <Link href="/dashboard" className="flex items-center gap-2 font-bold text-xl">
           <GitBranch className="h-6 w-6 text-primary" />
           <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
@@ -102,7 +104,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -232,7 +234,7 @@ export function Sidebar() {
       </nav>
 
       {/* User Profile */}
-      <div className="p-4 border-t bg-muted/30">
+      <div className="p-4 border-t bg-muted/30 flex-shrink-0">
         <div className="flex items-center gap-3 mb-3">
           <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
             <UserIcon className="h-5 w-5 text-primary" />
