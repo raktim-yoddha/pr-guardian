@@ -1,4 +1,5 @@
 """Application configuration via pydantic-settings."""
+import json
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -45,6 +46,25 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000"]
     )
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v: object) -> list[str]:
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            v = v.strip()
+            # Try JSON array first
+            if v.startswith("["):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+            # Fallback: split by comma
+            return [origin.strip().strip('"').strip("'") for origin in v.split(",") if origin.strip()]
+        return ["http://localhost:3000"]
 
     # Database
     DATABASE_URL: str = (
