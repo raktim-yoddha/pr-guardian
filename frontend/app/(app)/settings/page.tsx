@@ -226,7 +226,7 @@ export default function SettingsPage() {
 
       <p className="mt-6 text-xs text-muted-foreground">
         Embeddings run locally on CPU (bge-small) — no key required. If no provider key is set
-        anywhere, agents use the server's default provider.
+        anywhere, agents use the server&apos;s default provider.
       </p>
     </div>
   );
