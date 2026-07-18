@@ -59,6 +59,8 @@ class Settings(BaseSettings):
                     return parsed
             except json.JSONDecodeError:
                 pass
+        # Strip brackets (single‑quoted JS‑style arrays) then split by comma
+        v = v.strip("[]")
         return [o.strip().strip("\"'") for o in v.split(",") if o.strip()]
 
     # Database
