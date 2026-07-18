@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, setToken } from "@/lib/api";
 
-export default function OAuthCallbackPage() {
+function OAuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -56,5 +56,19 @@ export default function OAuthCallbackPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
       <div className="text-muted-foreground">Completing sign in...</div>
     </div>
+  );
+}
+
+export default function OAuthCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      }
+    >
+      <OAuthCallback />
+    </Suspense>
   );
 }
