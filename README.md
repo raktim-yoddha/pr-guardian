@@ -76,7 +76,7 @@ flowchart LR
 | Frontend | Next.js 14 + React 18 + TypeScript | Dashboard SPA (App Router) |
 | UI | Tailwind CSS + shadcn/ui (Radix) + lucide-react | Components, theming (dark/light) |
 | Data fetching | SWR | Client-side data fetching + caching |
-| Deployment | Docker Compose + Nginx | Full-stack local/prod deployment |
+| Deployment | Vercel (frontend) + Render (backend) + Neon (Postgres) | Free-tier friendly hosting |
 
 ## ⚙️ Setup & Installation
 
@@ -84,7 +84,7 @@ flowchart LR
 
 - Python 3.11+
 - Node.js 20+
-- PostgreSQL 16 with the `pgvector` extension (or Docker, which provides it)
+- PostgreSQL 16 with the `pgvector` extension (local install, or a free Neon database)
 - A Groq API key (free — [console.groq.com/keys](https://console.groq.com/keys)); Gemini key or local Ollama optional
 
 ### Environment
@@ -131,16 +131,13 @@ npm run dev
 
 Frontend runs at `http://localhost:3000`. It targets `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`).
 
-### Full Docker deployment
+### Deploying
 
-Runs Postgres + backend + frontend + Nginx together:
+- **Frontend → Vercel** — set root dir `frontend`, env `NEXT_PUBLIC_API_BASE_URL=<backend-url>`.
+- **Database → Neon** — free Postgres + pgvector. Use `postgresql+asyncpg://…` and drop `?sslmode=require`.
+- **Backend → Render** — a native-Python blueprint ships in [`render.yaml`](render.yaml) (no Docker). Python is pinned to 3.11 via [`backend/runtime.txt`](backend/runtime.txt) so fastembed's wheels install cleanly. Migrations auto-run on boot.
 
-```bash
-cp .env.example backend/.env   # then edit with real values
-docker compose up -d
-```
-
-App is served at `http://localhost` (Nginx proxies port 80).
+fastembed needs ~300–400MB RAM; on a 512MB instance it may fall back to BM25-only retrieval (the app keeps working).
 
 ### Testing the flow locally
 
@@ -209,7 +206,6 @@ PR Guardian/
 │   ├── components/                # ui/ (shadcn) + custom/ (sidebar, app-shell, theme)
 │   ├── lib/                       # api client, types, auth helpers
 │   └── package.json
-├── nginx/                         # Reverse-proxy config
-├── docker-compose.yml
+├── render.yaml                    # Render backend blueprint (native Python)
 └── .env.example
 ```
